@@ -1,0 +1,63 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Represents a Prawn Pond
+model Pond {
+  id          Int          @id @default(autoincrement())
+  name        String       // e.g., "Pond A"
+  location    String?
+  createdAt   DateTime     @default(now())
+  
+  // Relations
+  readings    SensorReading[]
+  alerts      Alert[]
+  actuators   Actuator[]
+}
+
+// 2. Stores the IoT Sensor Data (The Core Data)
+model SensorReading {
+  id          Int      @id @default(autoincrement())
+  timestamp   DateTime @default(now())
+  
+  // Water Quality Parameters (Float for precision)
+  ph          Float
+  dissolvedOxygen Float  // DO
+  temperature Float
+  turbidity   Float
+  ammonia     Float
+  salinity    Float?     // Optional if you don't always send it
+  
+  pondId      Int
+  pond        Pond     @relation(fields: [pondId], references: [id])
+}
+
+// 3. Stores System Alerts (For Dashboard Notifications)
+model Alert {
+  id          Int      @id @default(autoincrement())
+  timestamp   DateTime @default(now())
+  level       String   // "INFO", "WARNING", "CRITICAL"
+  message     String   // e.g., "High Ammonia detected!"
+  isResolved  Boolean  @default(false)
+  
+  pondId      Int
+  pond        Pond     @relation(fields: [pondId], references: [id])
+}
+
+// 4. Stores Actuator Status (For Remote Control)
+model Actuator {
+  id          Int      @id @default(autoincrement())
+  name        String   // e.g., "Aerator 1", "Feed Pump"
+  isOn        Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  
+  pondId      Int
+  pond        Pond     @relation(fields: [pondId], references: [id])
+}

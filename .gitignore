@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Build outputs
+dist/
+build/
+
+# Database (don't push your local DB)
+*.db
+*.sqlite
+prisma/dev.db
+prisma/dev.db-journal
+
+# System files
+.DS_Store
+Thumbs.db
