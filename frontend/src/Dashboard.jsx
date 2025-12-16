@@ -1,51 +1,191 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { 
+  AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
+} from 'recharts';
 import { 
   Droplets, Thermometer, Activity, Wind, AlertTriangle, Power, 
-  ChevronDown, CheckCircle2, Moon, Sun, X, Skull, Waves, Camera, BrainCircuit, ShieldCheck, Zap 
+  ChevronDown, CheckCircle2, Moon, Sun, X, Skull, Waves, Camera, BrainCircuit, ShieldCheck, Zap,
+  Fan, Utensils, FlaskConical, Radio, ScanEye, Maximize2, BellRing, Info, PlayCircle
 } from 'lucide-react';
 import Header from './Header';
 import Footer from './Footer';
 
 const API_URL = 'http://localhost:3001/api';
 
-// --- CONFIGURATION FOR CHART METRICS ---
+// --- CONFIGURATION ---
 const CHART_METRICS = {
-  dissolvedOxygen: { label: 'Dissolved Oxygen', color: '#3b82f6', unit: 'mg/L' },
-  ph: { label: 'pH Level', color: '#10b981', unit: 'pH' },
-  temperature: { label: 'Temperature', color: '#f97316', unit: '°C' },
-  turbidity: { label: 'Turbidity', color: '#8b5cf6', unit: 'NTU' },
-  ammonia: { label: 'Ammonia', color: '#ef4444', unit: 'mg/L' },
-  salinity: { label: 'Salinity', color: '#06b6d4', unit: 'ppt' },
+  dissolvedOxygen: { label: 'Dissolved Oxygen', unit: 'mg/L', color: '#3b82f6', yAxisId: 'right' },
+  ph: { label: 'pH Level', unit: 'pH', color: '#10b981', yAxisId: 'right' },
+  temperature: { label: 'Temperature', unit: '°C', color: '#f97316', yAxisId: 'left' },
+  turbidity: { label: 'Turbidity', unit: 'NTU', color: '#8b5cf6', yAxisId: 'left' },
+  ammonia: { label: 'Ammonia', unit: 'mg/L', color: '#ef4444', yAxisId: 'right' },
+  salinity: { label: 'Salinity', unit: 'ppt', color: '#06b6d4', yAxisId: 'left' },
 };
 
-// --- SUB-COMPONENT: COLORFUL SENSOR CARD ---
+// --- SUB-COMPONENT: ACTUATOR CONTROL (Segmented Pill Design) ---
+const ActuatorControl = ({ name, icon: Icon, status, onToggle, colorClass }) => {
+  const isActive = status === 'ON' || status === 'AUTO';
+  
+  // Icon Colors
+  const colorMap = {
+    blue: 'bg-blue-500 text-white shadow-blue-200',
+    orange: 'bg-orange-500 text-white shadow-orange-200',
+    cyan: 'bg-cyan-500 text-white shadow-cyan-200',
+    rose: 'bg-rose-500 text-white shadow-rose-200',
+    emerald: 'bg-emerald-500 text-white shadow-emerald-200',
+    violet: 'bg-violet-500 text-white shadow-violet-200',
+  };
+
+  // Status Dot
+  const dotColor = {
+    blue: 'bg-blue-500', orange: 'bg-orange-500', cyan: 'bg-cyan-500',
+    rose: 'bg-rose-500', emerald: 'bg-emerald-500', violet: 'bg-violet-500',
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-300 group">
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl shadow-lg transition-colors duration-300 ${isActive ? colorMap[colorClass] : 'bg-slate-100 text-slate-400 dark:bg-slate-700'}`}>
+            <Icon className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 dark:text-white leading-none">{name}</h4>
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-1 block uppercase tracking-wider">
+              Status: <span className={isActive ? `text-${colorClass}-500` : ''}>{status}</span>
+            </span>
+          </div>
+        </div>
+        
+        {isActive && (
+          <span className="relative flex h-2.5 w-2.5 mt-1">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor[colorClass]}`}></span>
+            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor[colorClass]}`}></span>
+          </span>
+        )}
+      </div>
+
+      {/* NEW: Segmented Control Buttons */}
+      <div className="flex p-1 bg-slate-100 dark:bg-slate-900 rounded-lg">
+        {['ON', 'AUTO', 'OFF'].map((mode) => (
+          <button
+            key={mode}
+            onClick={() => onToggle(mode)}
+            className={`flex-1 py-1.5 text-[10px] font-extrabold rounded-md transition-all duration-200 shadow-sm
+              ${status === mode 
+                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow' 
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 bg-transparent shadow-none'}
+            `}
+          >
+            {mode}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- SUB-COMPONENT: ALIGNED TOOLTIP ---
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl min-w-[200px]">
+        <p className="text-xs font-extrabold text-slate-500 dark:text-slate-400 mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
+          {label === 'NOW' ? 'LIVE READING' : label}
+        </p>
+        <div className="space-y-2">
+          {payload.map((entry, index) => (
+            <div key={index} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: entry.color }}></span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
+              </div>
+              <span className="font-mono font-bold" style={{ color: entry.color }}>
+                {entry.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+// --- SUB-COMPONENT: MINI TREND CHART ---
+const MiniTrendChart = ({ data, metricKey, config, isDarkMode, showForecast, onClick }) => {
+  if (!data || data.length === 0) return <div className="h-[80px] bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse"></div>;
+
+  return (
+    <button 
+      onClick={onClick}
+      className={`w-full text-left group relative rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${config.bg} transition-all duration-300 hover:shadow-lg hover:border-${config.color} hover:-translate-y-1`}
+    >
+      <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: config.color }}></span>
+          {config.label}
+        </span>
+        <Maximize2 className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+      <div className="h-[80px] w-full p-1 relative">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id={`grad-${metricKey}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={config.color} stopOpacity={0.4}/>
+                <stop offset="95%" stopColor={config.color} stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="time" hide />
+            <YAxis hide domain={['auto', 'auto']} />
+            <ReferenceLine x="NOW" stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} />
+            <Area 
+              type="monotone" 
+              dataKey={metricKey} 
+              stroke={config.color} 
+              strokeWidth={2} 
+              fill={`url(#grad-${metricKey})`} 
+              fillOpacity={1} 
+              isAnimationActive={false}
+            />
+            {showForecast && (
+               <Area type="monotone" dataKey={`pred_${metricKey}`} stroke={config.color} strokeWidth={2} strokeDasharray="3 3" fill="transparent" connectNulls={true} />
+            )}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </button>
+  );
+};
+
+// --- SUB-COMPONENT: SENSOR CARD ---
 const SensorCard = ({ title, value, unit, icon: Icon, theme }) => {
   const styles = {
-    blue: { bg: 'bg-blue-100 dark:bg-slate-800', border: 'border-blue-300 dark:border-slate-700', iconBg: 'bg-blue-200 dark:bg-blue-900/30', iconText: 'text-blue-700 dark:text-blue-400', text: 'text-blue-900 dark:text-blue-100', subtext: 'text-blue-700 dark:text-blue-400/70', ping: 'bg-blue-600' },
-    green: { bg: 'bg-emerald-100 dark:bg-slate-800', border: 'border-emerald-300 dark:border-slate-700', iconBg: 'bg-emerald-200 dark:bg-emerald-900/30', iconText: 'text-emerald-700 dark:text-emerald-400', text: 'text-emerald-900 dark:text-emerald-100', subtext: 'text-emerald-700 dark:text-emerald-400/70', ping: 'bg-emerald-600' },
-    orange: { bg: 'bg-orange-100 dark:bg-slate-800', border: 'border-orange-300 dark:border-slate-700', iconBg: 'bg-orange-200 dark:bg-orange-900/30', iconText: 'text-orange-700 dark:text-orange-400', text: 'text-orange-900 dark:text-orange-100', subtext: 'text-orange-700 dark:text-orange-400/70', ping: 'bg-orange-600' },
-    purple: { bg: 'bg-violet-100 dark:bg-slate-800', border: 'border-violet-300 dark:border-slate-700', iconBg: 'bg-violet-200 dark:bg-violet-900/30', iconText: 'text-violet-700 dark:text-violet-400', text: 'text-violet-900 dark:text-violet-100', subtext: 'text-violet-700 dark:text-violet-400/70', ping: 'bg-violet-600' },
-    red: { bg: 'bg-rose-100 dark:bg-slate-800', border: 'border-rose-300 dark:border-slate-700', iconBg: 'bg-rose-200 dark:bg-rose-900/30', iconText: 'text-rose-700 dark:text-rose-400', text: 'text-rose-900 dark:text-rose-100', subtext: 'text-rose-700 dark:text-rose-400/70', ping: 'bg-rose-600' },
-    cyan: { bg: 'bg-cyan-100 dark:bg-slate-800', border: 'border-cyan-300 dark:border-slate-700', iconBg: 'bg-cyan-200 dark:bg-cyan-900/30', iconText: 'text-cyan-700 dark:text-cyan-400', text: 'text-cyan-900 dark:text-cyan-100', subtext: 'text-cyan-700 dark:text-cyan-400/70', ping: 'bg-cyan-600' },
+    blue: { bg: 'bg-blue-100 dark:bg-slate-800', border: 'border-blue-300 dark:border-slate-700', iconBg: 'bg-blue-200 dark:bg-blue-900/30', iconText: 'text-blue-700 dark:text-blue-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-blue-500' },
+    green: { bg: 'bg-emerald-100 dark:bg-slate-800', border: 'border-emerald-200 dark:border-slate-700', iconBg: 'bg-emerald-100 dark:bg-emerald-900/30', iconText: 'text-emerald-600 dark:text-emerald-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-emerald-500' },
+    orange: { bg: 'bg-orange-100 dark:bg-slate-800', border: 'border-orange-200 dark:border-slate-700', iconBg: 'bg-orange-100 dark:bg-orange-900/30', iconText: 'text-orange-600 dark:text-orange-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-orange-500' },
+    purple: { bg: 'bg-violet-100 dark:bg-slate-800', border: 'border-violet-200 dark:border-slate-700', iconBg: 'bg-violet-100 dark:bg-violet-900/30', iconText: 'text-violet-600 dark:text-violet-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-violet-500' },
+    red: { bg: 'bg-rose-100 dark:bg-slate-800', border: 'border-rose-200 dark:border-slate-700', iconBg: 'bg-rose-100 dark:bg-rose-900/30', iconText: 'text-rose-600 dark:text-rose-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-rose-500' },
+    cyan: { bg: 'bg-cyan-100 dark:bg-slate-800', border: 'border-cyan-200 dark:border-slate-700', iconBg: 'bg-cyan-100 dark:bg-cyan-900/30', iconText: 'text-cyan-600 dark:text-cyan-400', text: 'text-slate-800 dark:text-slate-100', subtext: 'text-slate-500 dark:text-slate-400', badgeDot: 'bg-cyan-500' },
   };
 
   const s = styles[theme] || styles.blue;
 
   return (
-    <div className={`${s.bg} ${s.border} p-5 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-1`}>
+    <div className={`${s.bg} ${s.border} p-5 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-1 group`}>
       <div className="flex justify-between items-start mb-3">
         <div className={`p-2.5 rounded-xl ${s.iconBg} border border-black/5 dark:border-white/5`}>
           <Icon className={`w-5 h-5 ${s.iconText}`} />
         </div>
-        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-700/50 border border-white/50 dark:border-slate-600 backdrop-blur-sm shadow-sm">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${s.ping}`}></span>
-            <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${s.ping}`}></span>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-700 shadow-sm border border-slate-100 dark:border-slate-600">
+          <span className="relative flex h-2 w-2">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${s.badgeDot}`}></span>
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${s.badgeDot}`}></span>
           </span>
-          <span className={`text-[9px] font-bold uppercase tracking-wide ${s.subtext}`}>Live</span>
-        </span>
+          <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 tracking-wider">LIVE</span>
+        </div>
       </div>
       <div>
         <h3 className={`text-xs font-bold uppercase tracking-wider mb-0.5 opacity-90 ${s.text}`}>{title}</h3>
@@ -58,7 +198,8 @@ const SensorCard = ({ title, value, unit, icon: Icon, theme }) => {
   );
 };
 
-export default function Dashboard() {
+// --- MAIN DASHBOARD COMPONENT ---
+export default function Dashboard({ user, onLogout }) {
   const [readings, setReadings] = useState([]);
   const [latest, setLatest] = useState(null);
   const [ponds, setPonds] = useState([]);
@@ -66,9 +207,15 @@ export default function Dashboard() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showForecast, setShowForecast] = useState(false);
   const [isSystemActive, setIsSystemActive] = useState(true);
-  
-  // NEW: State for selecting which metric to show on chart
-  const [chartMetric, setChartMetric] = useState('dissolvedOxygen');
+  const [chartMetric, setChartMetric] = useState('all');
+
+  // Ref for scrolling
+  const alertsRef = useRef(null);
+
+  // Actuators State
+  const [actuators, setActuators] = useState({
+    aerator: 'AUTO', pump: 'OFF', feeder: 'AUTO', heater: 'OFF', phDoser: 'AUTO', bioFilter: 'ON'
+  });
 
   const [alerts, setAlerts] = useState([
     { id: 1, title: 'Critical Ammonia', msg: 'Levels rose to 0.05 mg/L. Check bio-filters.', time: '2m ago', type: 'critical' },
@@ -77,14 +224,19 @@ export default function Dashboard() {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const dismissAlert = (id) => setAlerts(alerts.filter(a => a.id !== id));
+  const toggleActuator = (key, val) => setActuators(prev => ({...prev, [key]: val}));
 
-  // --- MOCK DATA GENERATOR (All 6 Parameters) ---
+  // Scroll to alerts function
+  const scrollToAlerts = () => {
+    alertsRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // --- DATA GENERATOR ---
   const generateChartData = () => {
     const data = [];
     const now = new Date();
     const currentHour = now.getHours();
 
-    // 1. Generate History
     for (let i = 8; i > 0; i--) {
       data.push({
         time: `${Math.abs(currentHour - i) % 24}:00`,
@@ -98,16 +250,13 @@ export default function Dashboard() {
       });
     }
 
-    // 2. "NOW" Data Point
     const currentValues = { 
       dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, 
       turbidity: 12, ammonia: 0.02, salinity: 22.4 
     };
     
     data.push({
-      time: "NOW",
-      ...currentValues,
-      // Start prediction lines from current values
+      time: "NOW", ...currentValues,
       pred_dissolvedOxygen: currentValues.dissolvedOxygen,
       pred_ph: currentValues.ph,
       pred_temperature: currentValues.temperature,
@@ -117,16 +266,15 @@ export default function Dashboard() {
       isForecast: false
     });
 
-    // 3. Generate Forecast (Simulated trends)
     for (let i = 1; i <= 4; i++) {
       data.push({
         time: `${(currentHour + i) % 24}:00`,
-        pred_dissolvedOxygen: (currentValues.dissolvedOxygen - (i * 0.3)).toFixed(2), // DO Drops
-        pred_ph: (currentValues.ph - (i * 0.05)).toFixed(2),
-        pred_temperature: (currentValues.temperature - (i * 0.2)).toFixed(1), // Temp drops at night
-        pred_turbidity: currentValues.turbidity + i, // Turbidity rises
-        pred_ammonia: (currentValues.ammonia + (i * 0.005)).toFixed(3), // Ammonia rises slowly
-        pred_salinity: currentValues.salinity, // Stable
+        pred_dissolvedOxygen: (currentValues.dissolvedOxygen - (i * 0.3)).toFixed(2), 
+        pred_ph: (currentValues.ph - (i * 0.05)).toFixed(2), 
+        pred_temperature: (currentValues.temperature - (i * 0.2)).toFixed(1), 
+        pred_turbidity: currentValues.turbidity + i, 
+        pred_ammonia: (currentValues.ammonia + (i * 0.005)).toFixed(3), 
+        pred_salinity: currentValues.salinity, 
         isForecast: true
       });
     }
@@ -135,7 +283,9 @@ export default function Dashboard() {
 
   useEffect(() => { 
     fetchPonds(); 
-    setReadings(generateChartData());
+    const initialData = generateChartData();
+    setReadings(initialData);
+    setLatest({ dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, turbidity: 12, ammonia: 0.02, salinity: 22.4 });
   }, []);
 
   useEffect(() => {
@@ -160,14 +310,19 @@ export default function Dashboard() {
     }
   };
 
-  // Get config for current chart selection
   const activeChartMetric = CHART_METRICS[chartMetric];
 
   return (
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-white dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300 flex flex-col">
         
-        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+        {/* Header with Logout Functionality */}
+        <Header 
+          isDarkMode={isDarkMode} 
+          toggleTheme={toggleTheme} 
+          user={user} 
+          onLogout={onLogout} 
+        />
 
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
           
@@ -206,7 +361,7 @@ export default function Dashboard() {
 
               </div>
               <div className="relative w-full md:w-72">
-                <select className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold py-3 px-4 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer shadow-sm hover:border-blue-300" value={selectedPond} onChange={(e) => setSelectedPond(e.target.value)}>
+                <select className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold py-3 px-4 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hover:border-blue-300" value={selectedPond} onChange={(e) => setSelectedPond(e.target.value)}>
                   {ponds.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 <ChevronDown className="absolute right-3 top-3.5 w-5 h-5 text-slate-400 pointer-events-none" />
@@ -214,7 +369,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* --- SENSOR CARDS (ALL 6 VISIBLE) --- */}
+          {/* --- SENSOR CARDS --- */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
             <SensorCard title="Dissolved Oxygen" value={latest?.dissolvedOxygen || "6.2"} unit="mg/L" icon={Wind} theme="blue" />
             <SensorCard title="pH Level" value={latest?.ph || "7.8"} unit="pH" icon={Droplets} theme="green" />
@@ -225,27 +380,37 @@ export default function Dashboard() {
           </div>
 
           {/* --- MAIN CONTENT GRID --- */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* LEFT COLUMN: INTERACTIVE CHART (2/3 Width) */}
-            <div className="lg:col-span-2 space-y-8">
+            <div className="lg:col-span-2 space-y-6">
               
-              {/* CHART CARD WITH TABS */}
+              {/* CHART CARD */}
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden transition-colors duration-300">
-                <div className="bg-slate-50 dark:bg-slate-700/30 px-6 py-4 border-b border-slate-100 dark:border-slate-700">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="bg-slate-50/50 dark:bg-slate-800/50 px-6 py-5 border-b border-slate-100 dark:border-slate-700 backdrop-blur-sm">
+                  
+                  {/* Row 1: Title + Action Button + LIVE Logo */}
+                  <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <Activity className="w-5 h-5 text-blue-500" />
-                        Water Quality Trends
-                      </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Real-time Sensor Data vs AI Forecast</p>
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                          <Activity className="w-5 h-5 text-blue-500" />
+                          Water Quality Trends
+                        </h3>
+                        {/* LIVE LOOK LOGO */}
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-full animate-pulse">
+                          <Radio className="w-3 h-3 text-red-600 dark:text-red-400" />
+                          <span className="text-[10px] font-extrabold text-red-600 dark:text-red-400 uppercase tracking-widest">LIVE SIGNAL</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">Real-time Sensor Data vs AI Forecast</p>
                     </div>
+                    
                     <button 
                         onClick={() => setShowForecast(!showForecast)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-all
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-all shadow-sm
                         ${showForecast 
-                            ? 'bg-violet-100 border-violet-200 text-violet-700 dark:bg-violet-900/30 dark:border-violet-700 dark:text-violet-300' 
+                            ? 'bg-violet-50 border-violet-200 text-violet-700 dark:bg-violet-900/30 dark:border-violet-700 dark:text-violet-300' 
                             : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-400'}
                         `}
                     >
@@ -254,67 +419,76 @@ export default function Dashboard() {
                     </button>
                   </div>
 
-                  {/* MINI TABS FOR SELECTING CHART METRIC */}
-                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {/* Row 2: Metric Selection Tabs */}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                        onClick={() => setChartMetric('all')}
+                        className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase transition-all border shadow-sm flex items-center gap-2
+                        ${chartMetric === 'all' 
+                            ? `bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900 transform scale-105` 
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}
+                        `}
+                    >
+                        <Maximize2 className="w-3 h-3" />
+                        All Overview
+                    </button>
+                    
                     {Object.entries(CHART_METRICS).map(([key, config]) => (
                         <button
                             key={key}
                             onClick={() => setChartMetric(key)}
-                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase whitespace-nowrap transition-all border
+                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border shadow-sm flex items-center gap-1.5
                             ${chartMetric === key 
-                                ? `bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900` 
+                                ? `bg-white dark:bg-slate-800 border-${config.color} ring-1 ring-${config.color} text-slate-800 dark:text-white transform scale-105`
                                 : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}
                             `}
+                            style={chartMetric === key ? { borderColor: config.color, color: config.color } : {}}
                         >
+                            <span className={`w-1.5 h-1.5 rounded-full ${chartMetric === key ? 'animate-pulse' : ''}`} style={{ backgroundColor: config.color }}></span>
                             {config.label}
                         </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="p-6 h-[320px] w-full bg-white dark:bg-slate-800/50">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={readings}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
-                      <XAxis 
-                        dataKey="time" 
-                        tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11, fontWeight: 600}} 
-                        tickFormatter={(str) => str.includes("NOW") ? "NOW" : str} 
-                        axisLine={false} tickLine={false}
-                      />
-                      <YAxis tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: isDarkMode ? '#1e293b' : '#fff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
-                      />
-                      
-                      <ReferenceLine x="NOW" stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'NOW', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
-
-                      {/* DYNAMIC LINE: Changes based on selected tab */}
-                      <Line 
-                        type="monotone" 
-                        dataKey={chartMetric} 
-                        stroke={activeChartMetric.color} 
-                        strokeWidth={3} 
-                        dot={false} 
-                        name={`Actual ${activeChartMetric.label}`} 
-                        animationDuration={500}
-                      />
-                      
-                      {/* FORECAST LINE: Connected to selected metric */}
-                      {showForecast && (
-                        <Line 
-                            type="monotone" 
-                            dataKey={`pred_${chartMetric}`} 
-                            stroke={activeChartMetric.color} 
-                            strokeWidth={3} 
-                            strokeDasharray="5 5" 
-                            dot={{ r: 4, strokeWidth: 2 }} 
-                            name={`Predicted ${activeChartMetric.label}`}
-                            connectNulls={true} 
-                            strokeOpacity={0.6}
-                        />
-                      )}
-                    </LineChart>
+                <div className="p-6 h-[400px] w-full bg-white dark:bg-slate-800/50">
+                  {/* --- VITAL FIX: Add 'key' to force re-render when switching chart types --- */}
+                  <ResponsiveContainer width="100%" height="100%" key={chartMetric}>
+                    {chartMetric === 'all' ? (
+                      // --- ALL OVERVIEW GRID (Restored) ---
+                      <LineChart data={readings}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
+                        <XAxis dataKey="time" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} tickFormatter={(str) => str.includes("NOW") ? "NOW" : str} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="left" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="right" orientation="right" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <ReferenceLine yAxisId="left" x="NOW" stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'NOW', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
+                        
+                        {Object.entries(CHART_METRICS).map(([key, config]) => (
+                          <React.Fragment key={key}>
+                            <Line type="monotone" yAxisId={config.yAxisId} dataKey={key} stroke={config.color} strokeWidth={2} dot={false} name={config.label} />
+                            {showForecast && <Line type="monotone" yAxisId={config.yAxisId} dataKey={`pred_${key}`} stroke={config.color} strokeWidth={2} strokeDasharray="3 3" dot={false} name={`Predicted ${config.label}`} connectNulls={true} />}
+                          </React.Fragment>
+                        ))}
+                      </LineChart>
+                    ) : (
+                      // --- SINGLE CHART VIEW ---
+                      <AreaChart data={readings}>
+                        <defs>
+                          <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={activeChartMetric.color} stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor={activeChartMetric.color} stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
+                        <XAxis dataKey="time" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} tickFormatter={(str) => str.includes("NOW") ? "NOW" : str} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId={activeChartMetric.yAxisId} tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <ReferenceLine yAxisId={activeChartMetric.yAxisId} x="NOW" stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'NOW', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
+                        <Area type="monotone" yAxisId={activeChartMetric.yAxisId} dataKey={chartMetric} stroke={activeChartMetric.color} strokeWidth={3} fillOpacity={1} fill="url(#colorMetric)" name={activeChartMetric.label} animationDuration={1000} />
+                        {showForecast && <Area type="monotone" yAxisId={activeChartMetric.yAxisId} dataKey={`pred_${chartMetric}`} stroke={activeChartMetric.color} strokeWidth={3} strokeDasharray="5 5" fill="transparent" name={`Predicted ${activeChartMetric.label}`} connectNulls={true} />}
+                      </AreaChart>
+                    )}
                   </ResponsiveContainer>
                 </div>
               </div>
@@ -323,7 +497,7 @@ export default function Dashboard() {
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden transition-colors duration-300">
                 <div className="bg-indigo-50/50 dark:bg-indigo-900/20 px-6 py-4 border-b border-indigo-100 dark:border-slate-700 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    <Camera className="w-5 h-5 text-indigo-500" />
+                    <ScanEye className="w-5 h-5 text-indigo-500" />
                     AI Disease Detection
                   </h3>
                   <span className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-indigo-100 dark:border-slate-600 text-xs font-bold text-indigo-500 dark:text-indigo-300 uppercase shadow-sm">
@@ -332,23 +506,28 @@ export default function Dashboard() {
                 </div>
                 
                 <div className="p-6">
-                  <div className="flex gap-5 items-center p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
-                    <div className="w-24 h-24 bg-slate-200 dark:bg-slate-800 rounded-lg flex items-center justify-center text-slate-400 relative overflow-hidden group">
-                      <Camera className="w-8 h-8 opacity-50 group-hover:scale-110 transition-transform" />
-                      <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="text-[10px] font-bold text-slate-600">VIEW</span>
+                  <div className="flex flex-col sm:flex-row gap-6 items-center">
+                    {/* View Box */}
+                    <div className="relative group cursor-pointer w-full sm:w-auto">
+                      <div className="w-full sm:w-32 h-24 bg-slate-100 dark:bg-slate-900 rounded-xl border-2 border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 transition-all group-hover:border-indigo-400 group-hover:shadow-lg">
+                        <Camera className="w-8 h-8 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider group-hover:text-indigo-500">View Feed</span>
                       </div>
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-800 animate-pulse"></div>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-lg text-slate-700 dark:text-slate-200">
-                        Analysis Result: <span className="text-emerald-500">Healthy</span>
-                      </h4>
-                      <p className="text-sm text-slate-500 mt-1 max-w-lg leading-relaxed">
-                        CNN Model analysis shows no signs of White Spot Syndrome Virus (WSSV) or Black Gill disease. Prawn activity levels are normal.
+
+                    {/* Content */}
+                    <div className="flex-1 text-center sm:text-left space-y-2">
+                      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2">
+                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Analysis Result:</p>
+                        <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span className="text-xs font-extrabold uppercase">Healthy</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-sm">
+                        CNN Model analysis shows no signs of White Spot Syndrome Virus (WSSV) or Black Gill disease. 
                       </p>
-                      <button className="mt-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 uppercase tracking-wide flex items-center gap-1">
-                        View Live Feed &rarr;
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -356,61 +535,69 @@ export default function Dashboard() {
 
             </div>
 
-            {/* RIGHT COLUMN: Controls & Alerts */}
-            <div className="space-y-12">
+            {/* RIGHT COLUMN: REORDERED (Controls Top, Alerts Bottom) */}
+            <div className="space-y-6 flex flex-col">
               
-              {/* CONTROL PANEL */}
-              <div className="bg-indigo-50 dark:bg-slate-800 p-6 rounded-2xl border border-indigo-200 dark:border-slate-700 shadow-sm transition-colors duration-300">
-                <h3 className="text-lg font-bold text-indigo-900 dark:text-indigo-100 mb-4 flex items-center gap-2">
-                  <Power className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
-                  System Control
-                </h3>
-                 <div className="space-y-4">
-                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-indigo-200 dark:border-slate-700 transition-colors shadow-sm">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-bold text-indigo-900 dark:text-indigo-200">Main Aerator</span>
-                      <span className="flex items-center gap-1.5 text-[10px] font-extrabold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-400 px-2 py-0.5 rounded-full uppercase">
-                        <CheckCircle2 className="w-3 h-3" /> ON
-                      </span>
+              {/* 1. CONTROL PANEL (TOP) */}
+              <div className="bg-indigo-50 dark:bg-slate-800 p-5 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-sm transition-colors duration-300">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-sm font-extrabold text-indigo-800 dark:text-indigo-100 flex items-center gap-2 uppercase tracking-wide">
+                    <Power className="w-4 h-4" />
+                    System Control
+                  </h3>
+                  
+                  {/* INTERACTIVE ALERT INDICATOR */}
+                  <div className="relative group cursor-pointer" onClick={scrollToAlerts}>
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-700 shadow-sm group-hover:bg-rose-50 transition-colors">
+                      <BellRing className={`w-4 h-4 ${alerts.length > 0 ? 'text-rose-500 animate-swing' : 'text-slate-400'}`} />
+                      {alerts.length > 0 && (
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                        </span>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <button className="flex-1 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Off</button>
-                      <button className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold uppercase shadow-md hover:bg-indigo-700 transition-colors">Auto</button>
+                    {/* Hover Popover */}
+                    <div className="absolute right-0 top-10 w-48 bg-white dark:bg-slate-900 p-3 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">{alerts.length} Active Alerts</p>
+                      <p className="text-xs text-indigo-600 font-bold cursor-pointer">Click to view details &darr;</p>
                     </div>
                   </div>
+                </div>
 
-                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-indigo-200 dark:border-slate-700 transition-colors shadow-sm">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-bold text-indigo-900 dark:text-indigo-200">Feed Pump</span>
-                      <span className="flex items-center gap-1.5 text-[10px] font-extrabold text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full uppercase">OFF</span>
-                    </div>
-                    <button className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold uppercase hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-500 transition-colors">
-                      Manual Override
-                    </button>
-                  </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <ActuatorControl name="Main Aerator" icon={Wind} status={actuators.aerator} onToggle={(val) => toggleActuator('aerator', val)} colorClass="blue" />
+                  <ActuatorControl name="Feed Pump" icon={Utensils} status={actuators.feeder} onToggle={(val) => toggleActuator('feeder', val)} colorClass="orange" />
+                  <ActuatorControl name="Water Pump" icon={Waves} status={actuators.pump} onToggle={(val) => toggleActuator('pump', val)} colorClass="cyan" />
+                  <ActuatorControl name="Temp Control" icon={Sun} status={actuators.heater} onToggle={(val) => toggleActuator('heater', val)} colorClass="rose" />
+                  <ActuatorControl name="pH Doser" icon={FlaskConical} status={actuators.phDoser} onToggle={(val) => toggleActuator('phDoser', val)} colorClass="emerald" />
+                  <ActuatorControl name="Bio-Filter" icon={Activity} status={actuators.bioFilter} onToggle={(val) => toggleActuator('bioFilter', val)} colorClass="violet" />
                 </div>
               </div>
 
-              {/* LIVE ALERTS */}
-              <div className="bg-rose-50 dark:bg-slate-800 p-6 rounded-2xl border border-rose-200 dark:border-slate-700 shadow-sm transition-colors duration-300">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold text-rose-900 dark:text-rose-100 flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-500" />
+              {/* 2. LIVE ALERTS (BOTTOM) */}
+              <div ref={alertsRef} className="bg-rose-50 dark:bg-slate-800 p-5 rounded-2xl border border-rose-100 dark:border-slate-700 shadow-sm transition-colors duration-300 flex-1">
+                <div className="flex justify-between items-center mb-4 pb-3 border-b border-rose-100 dark:border-slate-700">
+                  <h3 className="text-sm font-extrabold text-rose-700 dark:text-rose-100 flex items-center gap-2 uppercase tracking-wide">
+                    <AlertTriangle className="w-4 h-4" />
                     Live Alerts
                   </h3>
-                  <span className="text-xs font-bold text-rose-600 bg-rose-200 dark:bg-rose-900/30 px-2 py-1 rounded-lg">{alerts.length} New</span>
+                  <span className="text-[10px] font-bold text-white bg-rose-500 px-2 py-0.5 rounded-full">{alerts.length} New</span>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-3 overflow-y-auto max-h-[300px] pr-1 custom-scrollbar">
                   {alerts.map(alert => (
-                    <div key={alert.id} className="relative group p-4 bg-white dark:bg-slate-900 border-l-4 border-rose-500 dark:border-rose-600 rounded-r-xl shadow-sm hover:shadow-md transition-all">
-                      <button onClick={() => dismissAlert(alert.id)} className="absolute top-2 right-2 p-1 text-slate-300 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-all"><X className="w-3 h-3" /></button>
-                      <div className="flex justify-between items-start">
-                        <h4 className="text-sm font-bold text-rose-900 dark:text-rose-200">{alert.title}</h4>
-                        <span className="text-[10px] text-rose-500 font-bold uppercase">{alert.time}</span>
+                    <div key={alert.id} className="relative p-3 bg-white dark:bg-slate-900 border-l-4 border-rose-500 rounded shadow-sm hover:shadow-md transition-all animate-in slide-in-from-right-2 fade-in duration-300">
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">{alert.title}</h4>
+                        <span className="text-[9px] font-bold text-rose-500 uppercase bg-rose-50 dark:bg-rose-900/20 px-1.5 rounded">{alert.time}</span>
                       </div>
-                      <p className="text-xs text-rose-800 dark:text-rose-300 mt-1 font-medium">{alert.msg}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">{alert.msg}</p>
+                      <button onClick={() => dismissAlert(alert.id)} className="absolute top-1 right-1 p-1 text-slate-300 hover:text-slate-500"><X className="w-3 h-3" /></button>
                     </div>
                   ))}
+                  {alerts.length === 0 && (
+                    <div className="text-center py-8 text-xs text-slate-400 italic">No active alerts. System nominal.</div>
+                  )}
                 </div>
               </div>
 

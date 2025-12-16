@@ -10,7 +10,7 @@ import Footer from './Footer';
 // Placeholder Image (Simulating Live Feed)
 const LIVE_FEED_URL = "https://images.unsplash.com/photo-1559827260-dc66d52bef19?q=80&w=1200&auto=format&fit=crop";
 
-export default function CameraFeed() {
+export default function CameraFeed({ user, onLogout }) { // <--- Props Added Here
   // --- STATE MANAGEMENT ---
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isAiEnabled, setIsAiEnabled] = useState(true);
@@ -59,7 +59,13 @@ export default function CameraFeed() {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-300">
         
-        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+        {/* Pass user and onLogout to Header */}
+        <Header 
+          isDarkMode={isDarkMode} 
+          toggleTheme={toggleTheme} 
+          user={user} 
+          onLogout={onLogout} 
+        />
 
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
           

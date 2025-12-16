@@ -125,7 +125,7 @@ const ThresholdCard = ({ id, config, values, onChange }) => {
   );
 };
 
-export default function Settings() {
+export default function Settings({ user, onLogout }) { // <--- Added Props Here
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -158,7 +158,13 @@ export default function Settings() {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-300">
         
-        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+        {/* Pass props to Header */}
+        <Header 
+          isDarkMode={isDarkMode} 
+          toggleTheme={toggleTheme} 
+          user={user} 
+          onLogout={onLogout} 
+        />
 
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
           

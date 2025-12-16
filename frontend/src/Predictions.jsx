@@ -94,7 +94,7 @@ const generateData = () => {
 
 const data = generateData();
 
-export default function Predictions() {
+export default function Predictions({ user, onLogout }) { // <--- Added Props Here
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedPond, setSelectedPond] = useState(1);
   const [selectedMetric, setSelectedMetric] = useState('do');
@@ -121,7 +121,13 @@ export default function Predictions() {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-300">
         
-        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+        {/* Pass props to Header */}
+        <Header 
+          isDarkMode={isDarkMode} 
+          toggleTheme={toggleTheme} 
+          user={user} 
+          onLogout={onLogout} 
+        />
 
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
           
