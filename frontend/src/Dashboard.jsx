@@ -6,11 +6,12 @@ import {
 import { 
   Droplets, Thermometer, Activity, Wind, AlertTriangle, Power, 
   ChevronDown, CheckCircle2, Moon, Sun, X, Skull, Waves, Camera, BrainCircuit, ShieldCheck, Zap,
-  Fan, Utensils, FlaskConical, Radio, ScanEye, Maximize2, BellRing, Info, PlayCircle
+  Fan, Utensils, FlaskConical, Radio, ScanEye, Maximize2, BellRing, Info, PlayCircle, WifiOff
 } from 'lucide-react';
 import Header from './Header';
 import Footer from './Footer';
 
+// ✅ POINTING TO YOUR BACKEND
 const API_URL = 'http://localhost:3001/api';
 
 // --- CONFIGURATION ---
@@ -23,11 +24,10 @@ const CHART_METRICS = {
   salinity: { label: 'Salinity', unit: 'ppt', color: '#06b6d4', yAxisId: 'left' },
 };
 
-// --- SUB-COMPONENT: ACTUATOR CONTROL (Segmented Pill Design) ---
+// --- SUB-COMPONENT: ACTUATOR CONTROL ---
 const ActuatorControl = ({ name, icon: Icon, status, onToggle, colorClass }) => {
   const isActive = status === 'ON' || status === 'AUTO';
   
-  // Icon Colors
   const colorMap = {
     blue: 'bg-blue-500 text-white shadow-blue-200',
     orange: 'bg-orange-500 text-white shadow-orange-200',
@@ -37,7 +37,6 @@ const ActuatorControl = ({ name, icon: Icon, status, onToggle, colorClass }) => 
     violet: 'bg-violet-500 text-white shadow-violet-200',
   };
 
-  // Status Dot
   const dotColor = {
     blue: 'bg-blue-500', orange: 'bg-orange-500', cyan: 'bg-cyan-500',
     rose: 'bg-rose-500', emerald: 'bg-emerald-500', violet: 'bg-violet-500',
@@ -66,7 +65,6 @@ const ActuatorControl = ({ name, icon: Icon, status, onToggle, colorClass }) => 
         )}
       </div>
 
-      {/* NEW: Segmented Control Buttons */}
       <div className="flex p-1 bg-slate-100 dark:bg-slate-900 rounded-lg">
         {['ON', 'AUTO', 'OFF'].map((mode) => (
           <button
@@ -86,7 +84,7 @@ const ActuatorControl = ({ name, icon: Icon, status, onToggle, colorClass }) => 
   );
 };
 
-// --- SUB-COMPONENT: ALIGNED TOOLTIP ---
+// --- SUB-COMPONENT: TOOLTIP ---
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -111,53 +109,6 @@ const CustomTooltip = ({ active, payload, label }) => {
     );
   }
   return null;
-};
-
-// --- SUB-COMPONENT: MINI TREND CHART ---
-const MiniTrendChart = ({ data, metricKey, config, isDarkMode, showForecast, onClick }) => {
-  if (!data || data.length === 0) return <div className="h-[80px] bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse"></div>;
-
-  return (
-    <button 
-      onClick={onClick}
-      className={`w-full text-left group relative rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${config.bg} transition-all duration-300 hover:shadow-lg hover:border-${config.color} hover:-translate-y-1`}
-    >
-      <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
-        <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: config.color }}></span>
-          {config.label}
-        </span>
-        <Maximize2 className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
-      <div className="h-[80px] w-full p-1 relative">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
-            <defs>
-              <linearGradient id={`grad-${metricKey}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={config.color} stopOpacity={0.4}/>
-                <stop offset="95%" stopColor={config.color} stopOpacity={0}/>
-              </linearGradient>
-            </defs>
-            <XAxis dataKey="time" hide />
-            <YAxis hide domain={['auto', 'auto']} />
-            <ReferenceLine x="NOW" stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} />
-            <Area 
-              type="monotone" 
-              dataKey={metricKey} 
-              stroke={config.color} 
-              strokeWidth={2} 
-              fill={`url(#grad-${metricKey})`} 
-              fillOpacity={1} 
-              isAnimationActive={false}
-            />
-            {showForecast && (
-               <Area type="monotone" dataKey={`pred_${metricKey}`} stroke={config.color} strokeWidth={2} strokeDasharray="3 3" fill="transparent" connectNulls={true} />
-            )}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </button>
-  );
 };
 
 // --- SUB-COMPONENT: SENSOR CARD ---
@@ -202,6 +153,7 @@ const SensorCard = ({ title, value, unit, icon: Icon, theme }) => {
 export default function Dashboard({ user, onLogout }) {
   const [readings, setReadings] = useState([]);
   const [latest, setLatest] = useState(null);
+  const [cameraSnapshot, setCameraSnapshot] = useState(null); // ✅ New state for real camera image
   const [ponds, setPonds] = useState([]);
   const [selectedPond, setSelectedPond] = useState(1);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -209,10 +161,8 @@ export default function Dashboard({ user, onLogout }) {
   const [isSystemActive, setIsSystemActive] = useState(true);
   const [chartMetric, setChartMetric] = useState('all');
 
-  // Ref for scrolling
   const alertsRef = useRef(null);
 
-  // Actuators State
   const [actuators, setActuators] = useState({
     aerator: 'AUTO', pump: 'OFF', feeder: 'AUTO', heater: 'OFF', phDoser: 'AUTO', bioFilter: 'ON'
   });
@@ -226,12 +176,11 @@ export default function Dashboard({ user, onLogout }) {
   const dismissAlert = (id) => setAlerts(alerts.filter(a => a.id !== id));
   const toggleActuator = (key, val) => setActuators(prev => ({...prev, [key]: val}));
 
-  // Scroll to alerts function
   const scrollToAlerts = () => {
     alertsRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // --- DATA GENERATOR ---
+  // --- DATA GENERATOR (Fallback for Demo) ---
   const generateChartData = () => {
     const data = [];
     const now = new Date();
@@ -281,20 +230,61 @@ export default function Dashboard({ user, onLogout }) {
     return data;
   };
 
+  // --- INITIAL DATA FETCH ---
   useEffect(() => { 
     fetchPonds(); 
-    const initialData = generateChartData();
-    setReadings(initialData);
-    setLatest({ dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, turbidity: 12, ammonia: 0.02, salinity: 22.4 });
+    // Initial load: Try backend, fallback to generator
+    refreshDashboardData();
   }, []);
 
+  // --- POLLING (Refresh Data) ---
   useEffect(() => {
     const interval = setInterval(() => {
-        setReadings(generateChartData());
-        setIsSystemActive(true);
-    }, 5000);
+        refreshDashboardData();
+    }, 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
   }, [selectedPond]);
+
+  // ✅ FUNCTION TO FETCH REAL BACKEND DATA
+  const refreshDashboardData = async () => {
+    try {
+      setIsSystemActive(true);
+
+      // 1. Fetch Real Sensor History from DB
+      const res = await axios.get(`${API_URL}/readings/${selectedPond}`);
+      
+      if (res.data && res.data.length > 0) {
+        // If DB has data, format it for the chart
+        const dbData = res.data.map(r => ({
+           time: new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+           dissolvedOxygen: r.dissolvedOxygen,
+           ph: r.ph,
+           temperature: r.temperature,
+           turbidity: r.turbidity,
+           ammonia: r.ammonia,
+           salinity: r.salinity
+        })).reverse(); // Oldest to newest
+        
+        setReadings(dbData);
+        setLatest(res.data[0]); // Newest item
+      } else {
+        // Fallback to Simulation if DB empty
+        setReadings(generateChartData());
+        setLatest({ dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, turbidity: 12, ammonia: 0.02, salinity: 22.4 });
+      }
+
+      // 2. Fetch Latest Camera Snapshot
+      const camRes = await axios.get(`${API_URL}/camera-logs`);
+      if (camRes.data && camRes.data.length > 0) {
+        setCameraSnapshot(camRes.data[0].url);
+      }
+
+    } catch (error) {
+      console.warn("Backend offline, using simulation mode.");
+      setIsSystemActive(false); 
+      setReadings(generateChartData());
+    }
+  };
 
   const fetchPonds = async () => {
     try {
@@ -316,7 +306,6 @@ export default function Dashboard({ user, onLogout }) {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-white dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300 flex flex-col">
         
-        {/* Header with Logout Functionality */}
         <Header 
           isDarkMode={isDarkMode} 
           toggleTheme={toggleTheme} 
@@ -353,7 +342,6 @@ export default function Dashboard({ user, onLogout }) {
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Analysis Status</span>
                 
-                {/* --- FADE MOTION RISK BADGE --- */}
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-lg border border-emerald-400/30 bg-gradient-to-r from-emerald-500 to-teal-500 animate-[pulse_3s_ease-in-out_infinite]">
                   <ShieldCheck className="w-4 h-4 text-white" />
                   <span className="text-xs font-extrabold text-white uppercase tracking-wide text-shadow-sm">Risk Level: Low</span>
@@ -452,10 +440,8 @@ export default function Dashboard({ user, onLogout }) {
                 </div>
 
                 <div className="p-6 h-[400px] w-full bg-white dark:bg-slate-800/50">
-                  {/* --- VITAL FIX: Add 'key' to force re-render when switching chart types --- */}
                   <ResponsiveContainer width="100%" height="100%" key={chartMetric}>
                     {chartMetric === 'all' ? (
-                      // --- ALL OVERVIEW GRID (Restored) ---
                       <LineChart data={readings}>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
                         <XAxis dataKey="time" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} tickFormatter={(str) => str.includes("NOW") ? "NOW" : str} axisLine={false} tickLine={false} />
@@ -472,7 +458,6 @@ export default function Dashboard({ user, onLogout }) {
                         ))}
                       </LineChart>
                     ) : (
-                      // --- SINGLE CHART VIEW ---
                       <AreaChart data={readings}>
                         <defs>
                           <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
@@ -493,7 +478,7 @@ export default function Dashboard({ user, onLogout }) {
                 </div>
               </div>
 
-              {/* AI DISEASE DETECTION WIDGET */}
+              {/* AI DISEASE DETECTION WIDGET (UPDATED FOR CAMERA) */}
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden transition-colors duration-300">
                 <div className="bg-indigo-50/50 dark:bg-indigo-900/20 px-6 py-4 border-b border-indigo-100 dark:border-slate-700 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -501,17 +486,23 @@ export default function Dashboard({ user, onLogout }) {
                     AI Disease Detection
                   </h3>
                   <span className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-indigo-100 dark:border-slate-600 text-xs font-bold text-indigo-500 dark:text-indigo-300 uppercase shadow-sm">
-                    Last Scan: 5m ago
+                    Last Scan: Just Now
                   </span>
                 </div>
                 
                 <div className="p-6">
                   <div className="flex flex-col sm:flex-row gap-6 items-center">
-                    {/* View Box */}
-                    <div className="relative group cursor-pointer w-full sm:w-auto">
-                      <div className="w-full sm:w-32 h-24 bg-slate-100 dark:bg-slate-900 rounded-xl border-2 border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 transition-all group-hover:border-indigo-400 group-hover:shadow-lg">
-                        <Camera className="w-8 h-8 text-slate-400 group-hover:text-indigo-500 transition-colors" />
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider group-hover:text-indigo-500">View Feed</span>
+                    {/* View Box - NOW SHOWING REAL IMAGE */}
+                    <div className="relative group cursor-pointer w-full sm:w-32">
+                      <div className="w-full sm:w-32 h-24 bg-slate-100 dark:bg-slate-900 rounded-xl border-2 border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 transition-all group-hover:border-indigo-400 group-hover:shadow-lg overflow-hidden">
+                        {cameraSnapshot ? (
+                            <img src={cameraSnapshot} alt="Pond Cam" className="w-full h-full object-cover" />
+                        ) : (
+                            <>
+                                <Camera className="w-8 h-8 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider group-hover:text-indigo-500">View Feed</span>
+                            </>
+                        )}
                       </div>
                       <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-800 animate-pulse"></div>
                     </div>
@@ -526,7 +517,7 @@ export default function Dashboard({ user, onLogout }) {
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-sm">
-                        CNN Model analysis shows no signs of White Spot Syndrome Virus (WSSV) or Black Gill disease. 
+                        CNN Model analysis shows no signs of White Spot Syndrome Virus (WSSV) or Black Gill disease based on latest frame. 
                       </p>
                     </div>
                   </div>

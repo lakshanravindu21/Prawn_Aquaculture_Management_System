@@ -16,20 +16,21 @@ model Pond {
   location  String?
   createdAt DateTime @default(now())
 
-  // Relations: One Pond has many readings, alerts, and actuators
-  readings  SensorReading[]
-  alerts    Alert[]
-  actuators Actuator[]
+  // Relations
+  readings    SensorReading[]
+  alerts      Alert[]
+  actuators   Actuator[]
+  cameraLogs  CameraLog[]      // Link to camera footage
 }
 
-// 2. Stores the IoT Sensor Data (The Core Data)
+// 2. Stores the IoT Sensor Data
 model SensorReading {
-  id        Int      @id @default(autoincrement())
-  timestamp DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  timestamp       DateTime @default(now())
 
   // Water Quality Parameters
   ph              Float
-  dissolvedOxygen Float  // DO
+  dissolvedOxygen Float    // DO
   temperature     Float
   turbidity       Float
   ammonia         Float
@@ -40,7 +41,7 @@ model SensorReading {
   pond   Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)
 }
 
-// 3. Stores System Alerts (For Dashboard Notifications)
+// 3. Stores System Alerts
 model Alert {
   id         Int      @id @default(autoincrement())
   timestamp  DateTime @default(now())
@@ -53,7 +54,7 @@ model Alert {
   pond   Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)
 }
 
-// 4. Stores Actuator Status (For Remote Control)
+// 4. Stores Actuator Status
 model Actuator {
   id        Int      @id @default(autoincrement())
   name      String   // e.g., "Main Aerator"
@@ -65,13 +66,27 @@ model Actuator {
   pond   Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)
 }
 
-// 5. Stores User Accounts for Authentication
+// 5. Stores User Accounts
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
   password  String
   name      String
   role      String   @default("Researcher")
-  avatar    String?  // <--- Add this line (Optional String)
+  avatar    String?
   createdAt DateTime @default(now())
+}
+
+// 6. NEW: Stores Camera Photos & Videos
+model CameraLog {
+  id          Int      @id @default(autoincrement())
+  timestamp   DateTime @default(now())
+   
+  type        String   // "IMAGE" or "VIDEO"
+  url         String   // Link to Supabase Storage
+  description String?  // AI analysis result
+
+  // Relation to Pond
+  pondId      Int
+  pond        Pond     @relation(fields: [pondId], references: [id], onDelete: Cascade)
 }
