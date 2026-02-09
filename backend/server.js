@@ -207,7 +207,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ==========================================
-// 📷 CAMERA ROUTES (ROBUST & SAFE)
+// 📷 CAMERA ROUTES (FIXED FOR COLORS)
 // ==========================================
 
 app.post('/api/camera-frame', async (req, res) => {
@@ -228,11 +228,9 @@ app.post('/api/camera-frame', async (req, res) => {
     }
 
     // 🚨 SAFETY CHECK 2: Does Pond Exist?
-    // This stops the "Foreign Key Constraint" 500 Error
     const pond = await prisma.pond.findUnique({ where: { id: pondId } });
     if (!pond) {
       console.error(`❌ Error: Pond ID ${pondId} does not exist in Database.`);
-      console.log("👉 FIX: Run 'POST http://localhost:3001/api/seed' to create it.");
       return res.status(404).send(`Pond ${pondId} not found`);
     }
 
@@ -243,7 +241,7 @@ app.post('/api/camera-frame', async (req, res) => {
       if (imgType === 'GRAYSCALE') {
           bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
       } else {
-          // Default to RGB565
+          // Default to RGB565 with Byte Swap
           bmpBuffer = convertRGB565toBMP(req.body, width, height);
       }
     } catch (conversionError) {
@@ -354,17 +352,14 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // ==========================================
-// 🛠 BMP CONVERTERS
+// 🛠 BMP CONVERTERS (FIXED NEON ISSUE)
 // ==========================================
 
 function convertGrayscaleToBMP(buffer, width, height) {
-  // BMP Header Size = 54 bytes
-  // Padding: BMP rows must be multiple of 4 bytes
   const pad = (4 - (width * 3) % 4) % 4; 
   const fileSize = 54 + ((width * 3 + pad) * height);
   const bmp = Buffer.alloc(fileSize);
 
-  // Header
   bmp.write('BM');
   bmp.writeUInt32LE(fileSize, 2);
   bmp.writeUInt32LE(54, 10);
@@ -376,7 +371,6 @@ function convertGrayscaleToBMP(buffer, width, height) {
   bmp.writeUInt32LE(0, 30);
   bmp.writeUInt32LE(fileSize - 54, 34);
 
-  // Data (Bottom-up)
   let pos = 54;
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
@@ -409,11 +403,13 @@ function convertRGB565toBMP(buffer, width, height) {
   let pos = 54;
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
-      // Index in ESP32 buffer (Top-down)
       const i = (y * width + x) * 2;
       
-      // Read 16-bit pixel
-      const val = buffer.readUInt16LE(i);
+      // 🔥 FIX: SWAP BYTES MANUALLY (Big Endian -> Little Endian)
+      // This fixes the neon colors!
+      const byte1 = buffer[i];
+      const byte2 = buffer[i+1];
+      const val = (byte1 << 8) | byte2; // Force Big Endian Read
 
       // Extract RGB (Masks for 5-6-5 format)
       const r = ((val >> 11) & 0x1F) << 3;
