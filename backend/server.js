@@ -241,10 +241,10 @@ app.post('/api/camera-frame', async (req, res) => {
     // 2. Convert based on type (Wrapped in Try/Catch to prevent crashes)
     try {
       if (imgType === 'GRAYSCALE') {
-         bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
+          bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
       } else {
-         // Default to RGB565
-         bmpBuffer = convertRGB565toBMP(req.body, width, height);
+          // Default to RGB565
+          bmpBuffer = convertRGB565toBMP(req.body, width, height);
       }
     } catch (conversionError) {
       console.error("❌ Error during BMP Conversion:", conversionError);
@@ -429,6 +429,13 @@ function convertRGB565toBMP(buffer, width, height) {
   }
   return bmp;
 }
+
+// ==========================================
+// ✅ WELCOME ROUTE (Added for Browser Check)
+// ==========================================
+app.get('/', (req, res) => {
+  res.send("<h1>Prawn Monitoring Backend is LIVE! 🦐🚀</h1>");
+});
 
 // Start Server
 app.listen(PORT, () => {
