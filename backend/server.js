@@ -63,6 +63,33 @@ transporter.verify(function (error, success) {
 });
 
 // ==========================================
+// 🛡️ MIDDLEWARE: VERIFY JWT TOKEN
+// ==========================================
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  
+  // Extract token: "Bearer <token>"
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    console.log("❌ Access Denied: No token provided in header");
+    return res.status(401).json({ error: "Access denied. No token provided." });
+  }
+
+  // Remove extra quotes if they exist
+  const cleanToken = token.replace(/"/g, '');
+
+  jwt.verify(cleanToken, SECRET_KEY, (err, user) => {
+    if (err) {
+      console.error("❌ Token Verify Failed:", err.message); 
+      return res.status(403).json({ error: "Invalid token." });
+    }
+    req.user = user; 
+    next();
+  });
+}
+
+// ==========================================
 // 🔐 AUTHENTICATION ROUTES
 // ==========================================
 
@@ -207,7 +234,88 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ==========================================
-// 📷 CAMERA ROUTES (FIXED FOR COLORS)
+// ⚙️ ACCOUNT SETTINGS ROUTES
+// ==========================================
+
+// 5. UPDATE PROFILE
+app.put('/api/auth/update-profile', authenticateToken, upload.single('avatar'), async (req, res) => {
+  try {
+    const { name } = req.body;
+    const userId = parseInt(req.user.id); 
+
+    console.log(`📝 Updating profile for User ID: ${userId}`);
+
+    const updateData = {};
+    if (name) updateData.name = name;
+
+    if (req.file) {
+      updateData.avatar = `http://localhost:${PORT}/uploads/${req.file.filename}`;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+    });
+
+    console.log("✅ Profile updated!");
+    
+    res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        avatar: updatedUser.avatar
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Profile Update Error:", error);
+    res.status(500).json({ error: `Failed to update profile: ${error.message}` });
+  }
+});
+
+// 6. CHANGE PASSWORD
+app.put('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    console.log("🔐 Change Password Request Body:", req.body);
+    
+    const { currentPassword, newPassword } = req.body;
+    const userId = parseInt(req.user.id);
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Both current and new passwords are required." });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Incorrect current password." });
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedNewPassword }
+    });
+
+    console.log(`✅ Password changed for User ID: ${userId}`);
+    res.json({ message: "Password changed successfully" });
+
+  } catch (error) {
+    console.error("❌ Password Change Exception:", error);
+    res.status(500).json({ error: `Failed to change password: ${error.message}` });
+  }
+});
+
+// ==========================================
+// 📷 CAMERA ROUTES
 // ==========================================
 
 app.post('/api/camera-frame', async (req, res) => {
@@ -215,44 +323,30 @@ app.post('/api/camera-frame', async (req, res) => {
     const imgLen = req.body ? req.body.length : 0;
     console.log(`📸 Receiving Frame... Size: ${imgLen} bytes`);
 
-    // 1. Get Headers from ESP32
     const width = parseInt(req.headers['x-img-width']) || 320;
     const height = parseInt(req.headers['x-img-height']) || 240;
     const imgType = (req.headers['x-img-type'] || 'RGB565').toUpperCase();
     const pondId = parseInt(req.query.pondId) || 1;
 
-    // 🚨 SAFETY CHECK 1: Is there data?
-    if (imgLen === 0) {
-      console.error("❌ Error: Received empty body from ESP32.");
-      return res.status(400).send("Empty Image Data");
-    }
+    if (imgLen === 0) return res.status(400).send("Empty Image Data");
 
-    // 🚨 SAFETY CHECK 2: Does Pond Exist?
+    // Check if pond exists
     const pond = await prisma.pond.findUnique({ where: { id: pondId } });
-    if (!pond) {
-      console.error(`❌ Error: Pond ID ${pondId} does not exist in Database.`);
-      return res.status(404).send(`Pond ${pondId} not found`);
-    }
+    if (!pond) return res.status(404).send(`Pond ${pondId} not found`);
 
     let bmpBuffer;
-
-    // 2. Convert based on type (Wrapped in Try/Catch to prevent crashes)
     try {
       if (imgType === 'GRAYSCALE') {
           bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
       } else {
-          // Default to RGB565 with Byte Swap
           bmpBuffer = convertRGB565toBMP(req.body, width, height);
       }
     } catch (conversionError) {
-      console.error("❌ Error during BMP Conversion:", conversionError);
       return res.status(500).send("Image Conversion Failed");
     }
     
-    // 3. Convert to Base64
     const base64Image = `data:image/bmp;base64,${bmpBuffer.toString('base64')}`;
 
-    // 4. Save to Database
     const newLog = await prisma.cameraLog.create({
       data: {
         type: "IMAGE",
@@ -266,14 +360,11 @@ app.post('/api/camera-frame', async (req, res) => {
     res.status(201).send("Image Uploaded");
 
   } catch (error) {
-    // 🔥 FULL ERROR LOGGING
-    console.error("❌ Upload Error FULL:", error);
-    console.error("Message:", error.message);
+    console.error("❌ Upload Error:", error.message);
     res.status(500).send(`Backend Error: ${error.message}`);
   }
 });
 
-// 2. Get Camera History for Frontend
 app.get('/api/camera-logs', async (req, res) => {
   try {
     const logs = await prisma.cameraLog.findMany({
@@ -287,7 +378,7 @@ app.get('/api/camera-logs', async (req, res) => {
 });
 
 // ==========================================
-// 🌊 IOT ROUTES
+// 🌊 IOT ROUTES (UPDATED WITH SOFT SENSORS)
 // ==========================================
 app.get('/api/ponds', async (req, res) => {
   try {
@@ -296,20 +387,51 @@ app.get('/api/ponds', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to fetch ponds" }); }
 });
 
+// ✅ UPDATED READINGS ROUTE
 app.post('/api/readings', async (req, res) => {
-  const { ph, do: dissolvedOxygen, temp, turbidity, ammonia, salinity, pondId } = req.body;
+  let { ph, do: dissolvedOxygen, temp, turbidity, ammonia, salinity, pondId } = req.body;
+
+  // 1. Salinity Unit Fix (PPM -> PPT)
+  let salValue = parseFloat(salinity) || 0;
+  if (salValue > 50) {
+      salValue = salValue / 1000;
+  }
+
+  // 2. Calculate Dissolved Oxygen (DO)
+  if (!dissolvedOxygen || parseFloat(dissolvedOxygen) === 0) {
+      const t = parseFloat(temp) || 25;
+      let calcDO = 14.6 - (0.37 * t) - (0.06 * salValue);
+      calcDO = Math.max(0, calcDO);
+      if (calcDO > 14) calcDO = 14; 
+      dissolvedOxygen = calcDO.toFixed(2);
+  }
+
+  // 3. Calculate Ammonia
+  if (!ammonia || parseFloat(ammonia) === 0) {
+      const turb = parseFloat(turbidity) || 0;
+      let calcAmmonia = turb * 0.002;
+      ammonia = Math.max(0, calcAmmonia).toFixed(3);
+  }
+
   try {
     const reading = await prisma.sensorReading.create({
       data: {
-        ph: parseFloat(ph), dissolvedOxygen: parseFloat(dissolvedOxygen),
-        temperature: parseFloat(temp), turbidity: parseFloat(turbidity),
-        ammonia: parseFloat(ammonia), salinity: parseFloat(salinity || 0),
+        ph: parseFloat(ph),
+        dissolvedOxygen: parseFloat(dissolvedOxygen), 
+        temperature: parseFloat(temp),
+        turbidity: parseFloat(turbidity),
+        ammonia: parseFloat(ammonia),                 
+        salinity: parseFloat(salValue),               
         pond: { connect: { id: parseInt(pondId) } }
       }
     });
-    console.log(`📡 Data Logged: DO=${dissolvedOxygen}`);
+    
+    console.log(`📡 Logged: Temp=${temp} | Sal=${salValue.toFixed(1)}ppt | DO=${dissolvedOxygen} | NH3=${ammonia}`);
     res.status(201).json(reading);
-  } catch (error) { res.status(500).json({ error: "Failed to save reading" }); }
+  } catch (error) { 
+    console.error("❌ Save Error:", error.message);
+    res.status(500).json({ error: "Failed to save reading" }); 
+  }
 });
 
 app.get('/api/readings/:pondId', async (req, res) => {
@@ -333,13 +455,12 @@ app.post('/api/actuators/:id/toggle', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to toggle actuator" }); }
 });
 
-// ✅ UPDATED SEED: Forces ID=1 to match ESP32
+// ✅ UPDATED SEED
 app.post('/api/seed', async (req, res) => {
   try {
     const pondCount = await prisma.pond.count();
     if (pondCount > 0) return res.json({ message: "Already seeded." });
     
-    // Force ID: 1
     const pond = await prisma.pond.create({
       data: {
         id: 1, 
@@ -352,7 +473,7 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // ==========================================
-// 🛠 BMP CONVERTERS (FIXED NEON ISSUE)
+// 🛠 BMP CONVERTERS
 // ==========================================
 
 function convertGrayscaleToBMP(buffer, width, height) {
@@ -375,11 +496,11 @@ function convertGrayscaleToBMP(buffer, width, height) {
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
       const val = buffer[y * width + x];
-      bmp[pos++] = val; // B
-      bmp[pos++] = val; // G
-      bmp[pos++] = val; // R
+      bmp[pos++] = val; 
+      bmp[pos++] = val; 
+      bmp[pos++] = val; 
     }
-    pos += pad; // Padding
+    pos += pad; 
   }
   return bmp;
 }
@@ -404,19 +525,14 @@ function convertRGB565toBMP(buffer, width, height) {
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 2;
-      
-      // 🔥 FIX: SWAP BYTES MANUALLY (Big Endian -> Little Endian)
-      // This fixes the neon colors!
       const byte1 = buffer[i];
       const byte2 = buffer[i+1];
-      const val = (byte1 << 8) | byte2; // Force Big Endian Read
+      const val = (byte1 << 8) | byte2; 
 
-      // Extract RGB (Masks for 5-6-5 format)
       const r = ((val >> 11) & 0x1F) << 3;
       const g = ((val >> 5) & 0x3F) << 2;
       const b = (val & 0x1F) << 3;
 
-      // Write BGR (BMP Standard)
       bmp[pos++] = b;
       bmp[pos++] = g;
       bmp[pos++] = r;
@@ -427,7 +543,7 @@ function convertRGB565toBMP(buffer, width, height) {
 }
 
 // ==========================================
-// ✅ WELCOME ROUTE (Added for Browser Check)
+// ✅ WELCOME ROUTE
 // ==========================================
 app.get('/', (req, res) => {
   res.send("<h1>Prawn Monitoring Backend is LIVE! 🦐🚀</h1>");
@@ -436,4 +552,5 @@ app.get('/', (req, res) => {
 // Start Server
 app.listen(PORT, () => {
   console.log(`🚀 AquaSmart Backend running on http://localhost:${PORT}`);
+  console.log(`🔐 Auth Secret Configured (Len: ${SECRET_KEY.length})`);
 });

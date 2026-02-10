@@ -60,42 +60,91 @@ export default function AccountSettings({ user, onLogout }) {
     }
   };
 
-  // Handle Save
+  // --- MAIN SAVE LOGIC ---
   const handleSaveProfile = async () => {
     setIsSaving(true);
     setMessage(null);
-    const token = localStorage.getItem('token');
+
+    // 1. Get and Clean Token (Removes extra quotes if present)
+    let token = localStorage.getItem('token');
+    if (token) token = token.replace(/"/g, ''); 
+
+    if (!token) {
+        setMessage({ type: 'error', text: 'Authentication error. Please login again.' });
+        setIsSaving(false);
+        return;
+    }
+
+    // Config for headers
+    const authConfig = {
+        headers: { 'Authorization': `Bearer ${token}` }
+    };
     
     try {
-        // 1. Update Profile Info & Avatar
-        const formData = new FormData();
-        formData.append('name', profileData.name);
-        if (uploadFile) formData.append('avatar', uploadFile);
+        let updatedUser = { ...user };
 
-        const resProfile = await axios.put(`${API_URL}/update-profile`, formData, {
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-        });
+        // ------------------------------------------
+        // A. UPDATE PROFILE (Name & Picture)
+        // ------------------------------------------
+        // Always run this if name changed or file selected
+        if (profileData.name !== user.name || uploadFile) {
+            const formData = new FormData();
+            formData.append('name', profileData.name);
+            if (uploadFile) formData.append('avatar', uploadFile);
 
-        // 2. Change Password (if provided)
+            const resProfile = await axios.put(
+                `${API_URL}/update-profile`, 
+                formData, 
+                { 
+                    headers: { 
+                        'Authorization': `Bearer ${token}`, 
+                        'Content-Type': 'multipart/form-data' 
+                    } 
+                }
+            );
+            
+            // Merge response data into our local user object
+            updatedUser = { ...updatedUser, ...resProfile.data.user };
+        }
+
+        // ------------------------------------------
+        // B. CHANGE PASSWORD (Only if fields filled)
+        // ------------------------------------------
         if (passwords.new) {
-            if (passwords.new !== passwords.confirm) throw new Error("New passwords do not match.");
+            if (passwords.new !== passwords.confirm) {
+                throw new Error("New passwords do not match.");
+            }
+            if (!passwords.current) {
+                throw new Error("Current password is required to set a new one.");
+            }
+
             await axios.put(`${API_URL}/change-password`, {
                 currentPassword: passwords.current,
                 newPassword: passwords.new
-            }, { headers: { 'Authorization': `Bearer ${token}` } });
+            }, authConfig);
         }
 
-        // 3. Update Local Storage to reflect changes immediately
-        const updatedUser = { ...user, ...resProfile.data.user };
+        // ------------------------------------------
+        // C. SUCCESS & CLEANUP
+        // ------------------------------------------
+        // Update Local Storage
         localStorage.setItem('aquaUser', JSON.stringify(updatedUser));
         
-        setMessage({ type: 'success', text: 'Profile updated successfully! Reloading...' });
+        setMessage({ type: 'success', text: 'Settings saved successfully! Reloading...' });
         
-        // Reload page to show new data in Header
+        // Clear sensitive fields
+        setPasswords({ current: '', new: '', confirm: '' });
+        setUploadFile(null);
+
+        // Reload to refresh app state
         setTimeout(() => window.location.reload(), 1500);
 
     } catch (err) {
-        setMessage({ type: 'error', text: err.response?.data?.error || err.message || "Update failed." });
+        console.error("Save Error:", err);
+        setMessage({ 
+            type: 'error', 
+            text: err.response?.data?.error || err.message || "Failed to save changes." 
+        });
     } finally {
         setIsSaving(false);
     }
@@ -187,7 +236,7 @@ export default function AccountSettings({ user, onLogout }) {
                         {user?.role || 'Researcher'}
                     </p>
                     <div className="mt-6 w-full pt-6 border-t border-slate-100 dark:border-slate-800">
-                       <p className="text-xs text-slate-400 font-medium">User ID: <span className="font-mono text-slate-500">{user?.id || '---'}</span></p>
+                        <p className="text-xs text-slate-400 font-medium">User ID: <span className="font-mono text-slate-500">{user?.id || '---'}</span></p>
                     </div>
                 </div>
             </motion.div>

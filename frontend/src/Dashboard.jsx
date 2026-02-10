@@ -153,7 +153,7 @@ const SensorCard = ({ title, value, unit, icon: Icon, theme }) => {
 export default function Dashboard({ user, onLogout }) {
   const [readings, setReadings] = useState([]);
   const [latest, setLatest] = useState(null);
-  const [cameraSnapshot, setCameraSnapshot] = useState(null); // ✅ New state for real camera image
+  const [cameraSnapshot, setCameraSnapshot] = useState(null); 
   const [ponds, setPonds] = useState([]);
   const [selectedPond, setSelectedPond] = useState(1);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -168,8 +168,7 @@ export default function Dashboard({ user, onLogout }) {
   });
 
   const [alerts, setAlerts] = useState([
-    { id: 1, title: 'Critical Ammonia', msg: 'Levels rose to 0.05 mg/L. Check bio-filters.', time: '2m ago', type: 'critical' },
-    { id: 2, title: 'Low Salinity', msg: 'Rainfall detected. Salinity dropped by 2ppt.', time: '1h ago', type: 'warning' }
+    { id: 1, title: 'System Active', msg: 'Soft-sensors enabled for Ammonia & DO.', time: 'Now', type: 'info' },
   ]);
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
@@ -180,12 +179,12 @@ export default function Dashboard({ user, onLogout }) {
     alertsRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // --- DATA GENERATOR (Fallback for Demo) ---
+  // --- DATA GENERATOR (Fallback) ---
   const generateChartData = () => {
+    // ... (Your existing generator code, kept for fallback)
     const data = [];
     const now = new Date();
     const currentHour = now.getHours();
-
     for (let i = 8; i > 0; i--) {
       data.push({
         time: `${Math.abs(currentHour - i) % 24}:00`,
@@ -198,52 +197,58 @@ export default function Dashboard({ user, onLogout }) {
         isForecast: false
       });
     }
-
-    const currentValues = { 
-      dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, 
-      turbidity: 12, ammonia: 0.02, salinity: 22.4 
-    };
-    
-    data.push({
-      time: "NOW", ...currentValues,
-      pred_dissolvedOxygen: currentValues.dissolvedOxygen,
-      pred_ph: currentValues.ph,
-      pred_temperature: currentValues.temperature,
-      pred_turbidity: currentValues.turbidity,
-      pred_ammonia: currentValues.ammonia,
-      pred_salinity: currentValues.salinity,
-      isForecast: false
-    });
-
-    for (let i = 1; i <= 4; i++) {
-      data.push({
-        time: `${(currentHour + i) % 24}:00`,
-        pred_dissolvedOxygen: (currentValues.dissolvedOxygen - (i * 0.3)).toFixed(2), 
-        pred_ph: (currentValues.ph - (i * 0.05)).toFixed(2), 
-        pred_temperature: (currentValues.temperature - (i * 0.2)).toFixed(1), 
-        pred_turbidity: currentValues.turbidity + i, 
-        pred_ammonia: (currentValues.ammonia + (i * 0.005)).toFixed(3), 
-        pred_salinity: currentValues.salinity, 
-        isForecast: true
-      });
-    }
     return data;
   };
 
   // --- INITIAL DATA FETCH ---
   useEffect(() => { 
     fetchPonds(); 
-    // Initial load: Try backend, fallback to generator
     refreshDashboardData();
   }, []);
 
-  // --- POLLING (Refresh Data) ---
+  // --- POLLING ---
   useEffect(() => {
     const interval = setInterval(() => {
         refreshDashboardData();
-    }, 5000); // Poll every 5 seconds
+    }, 5000); 
     return () => clearInterval(interval);
   }, [selectedPond]);
+
+  // ✅ LOGIC: CALCULATE MISSING VALUES (SOFT SENSORS)
+  const calculateSoftSensors = (data) => {
+    return data.map(r => {
+        let temp = parseFloat(r.temperature);
+        let sal = parseFloat(r.salinity);
+        let turb = parseFloat(r.turbidity);
+        
+        // 1. Calculate DO (If sensor sends 0)
+        // Physics: DO drops as Temp & Salinity increase
+        let finalDO = r.dissolvedOxygen;
+        if (!finalDO || finalDO === 0) {
+            // Base Saturation at 25C is approx 8.2 mg/L
+            // Adjust: -0.2 per degree over 25, -0.05 per ppt salinity
+            let calculated = 14.6 - (0.37 * temp) - (0.06 * sal);
+            finalDO = Math.max(0, calculated).toFixed(2);
+        }
+
+        // 2. Calculate Ammonia (If sensor sends 0)
+        // Physics: High Turbidity (Waste) = Higher Ammonia potential
+        let finalAmmonia = r.ammonia;
+        if (!finalAmmonia || finalAmmonia === 0) {
+            // Mapping: 0-100 NTU -> 0.00 - 0.20 mg/L
+            let calculated = turb * 0.002; 
+            finalAmmonia = Math.max(0, calculated).toFixed(3);
+        }
+
+        return {
+            ...r,
+            dissolvedOxygen: finalDO,
+            ammonia: finalAmmonia,
+            // Format Time
+            time: new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        };
+    });
+  };
 
   // ✅ FUNCTION TO FETCH REAL BACKEND DATA
   const refreshDashboardData = async () => {
@@ -254,21 +259,15 @@ export default function Dashboard({ user, onLogout }) {
       const res = await axios.get(`${API_URL}/readings/${selectedPond}`);
       
       if (res.data && res.data.length > 0) {
-        // If DB has data, format it for the chart
-        const dbData = res.data.map(r => ({
-           time: new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-           dissolvedOxygen: r.dissolvedOxygen,
-           ph: r.ph,
-           temperature: r.temperature,
-           turbidity: r.turbidity,
-           ammonia: r.ammonia,
-           salinity: r.salinity
-        })).reverse(); // Oldest to newest
         
-        setReadings(dbData);
-        setLatest(res.data[0]); // Newest item
+        // APPLY THE LOGIC HERE
+        const processedData = calculateSoftSensors(res.data).reverse();
+        
+        setReadings(processedData);
+        setLatest(processedData[processedData.length - 1]); // Set newest (calculated) as latest
+      
       } else {
-        // Fallback to Simulation if DB empty
+        // Fallback
         setReadings(generateChartData());
         setLatest({ dissolvedOxygen: 6.2, ph: 7.8, temperature: 28.5, turbidity: 12, ammonia: 0.02, salinity: 22.4 });
       }
@@ -294,8 +293,7 @@ export default function Dashboard({ user, onLogout }) {
     } catch (err) {
       setPonds([
         { id: 1, name: "Research Pond A (Shrimp)" },
-        { id: 2, name: "Research Pond B (Control)" },
-        { id: 3, name: "Research Pond C (Treatment)" }
+        { id: 2, name: "Research Pond B (Control)" }
       ]);
     }
   };
@@ -359,12 +357,12 @@ export default function Dashboard({ user, onLogout }) {
 
           {/* --- SENSOR CARDS --- */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            <SensorCard title="Dissolved Oxygen" value={latest?.dissolvedOxygen || "6.2"} unit="mg/L" icon={Wind} theme="blue" />
-            <SensorCard title="pH Level" value={latest?.ph || "7.8"} unit="pH" icon={Droplets} theme="green" />
-            <SensorCard title="Temperature" value={latest?.temperature || "28.5"} unit="°C" icon={Thermometer} theme="orange" />
-            <SensorCard title="Turbidity" value={latest?.turbidity || "12"} unit="NTU" icon={Activity} theme="purple" />
-            <SensorCard title="Ammonia" value={latest?.ammonia || "0.02"} unit="mg/L" icon={Skull} theme="red" />
-            <SensorCard title="Salinity" value={latest?.salinity || "22.4"} unit="ppt" icon={Waves} theme="cyan" />
+            <SensorCard title="Dissolved Oxygen" value={latest?.dissolvedOxygen || "0.00"} unit="mg/L" icon={Wind} theme="blue" />
+            <SensorCard title="pH Level" value={latest?.ph || "0.0"} unit="pH" icon={Droplets} theme="green" />
+            <SensorCard title="Temperature" value={latest?.temperature || "0.0"} unit="°C" icon={Thermometer} theme="orange" />
+            <SensorCard title="Turbidity" value={latest?.turbidity || "0"} unit="NTU" icon={Activity} theme="purple" />
+            <SensorCard title="Ammonia" value={latest?.ammonia || "0.00"} unit="mg/L" icon={Skull} theme="red" />
+            <SensorCard title="Salinity" value={latest?.salinity || "0.0"} unit="ppt" icon={Waves} theme="cyan" />
           </div>
 
           {/* --- MAIN CONTENT GRID --- */}
