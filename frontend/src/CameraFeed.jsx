@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import { 
   Camera, AlertTriangle, CheckCircle2, Maximize2, BrainCircuit, History, 
   Video, Mic, MicOff, Settings, Sliders, Eye, EyeOff, Aperture, Save, Activity,
-  Play, Pause, Volume2, VolumeX, ChevronDown, RefreshCw, WifiOff
+  Play, Pause, Volume2, VolumeX, ChevronDown, RefreshCw, WifiOff, Stethoscope
 } from 'lucide-react';
 import Header from './Header';
 import Footer from './Footer';
@@ -27,8 +28,9 @@ export default function CameraFeed({ user, onLogout }) {
   const [sensitivity, setSensitivity] = useState(85);
   const [isNightVision, setIsNightVision] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [fps, setFps] = useState(0); // We will calculate based on updates
+  const [fps, setFps] = useState(0); 
 
+  const navigate = useNavigate(); // Hook for navigation
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // ✅ FETCH REAL DATA FROM BACKEND
@@ -40,14 +42,9 @@ export default function CameraFeed({ user, onLogout }) {
       const data = await res.json();
 
       if (data && data.length > 0) {
-        // 1. Set the latest image as the "Live Feed"
         setLiveImage(data[0].url);
-
-        // 2. Update the sidebar logs
         setLogs(data);
         setLoading(false);
-        
-        // Simple FPS simulation based on data arrival
         setFps(Math.floor(Math.random() * (15 - 10) + 10)); 
       }
     } catch (error) {
@@ -56,15 +53,21 @@ export default function CameraFeed({ user, onLogout }) {
     }
   };
 
-  // ✅ POLLING EFFECT (Runs every 2 seconds to check for new ESP32 images)
+  // ✅ POLLING EFFECT
   useEffect(() => {
-    fetchCameraData(); // Initial fetch
-    const interval = setInterval(fetchCameraData, 2000); // Poll every 2s
+    fetchCameraData(); 
+    const interval = setInterval(fetchCameraData, 2000); 
     return () => clearInterval(interval);
   }, [isPlaying]);
 
+  // Bridge Function: Send current frame to Health Page (Concept)
+  // Ideally, you'd save the image to a global context or pass state, 
+  // but for now we just navigate user to the Health page to do a manual check.
+  const handleQuickDiagnosis = () => {
+    navigate('/health');
+  };
+
   return (
-    // DARK MODE WRAPPER
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-300">
         
@@ -99,10 +102,10 @@ export default function CameraFeed({ user, onLogout }) {
             </div>
 
             <div className="flex flex-col items-end gap-2">
-              <span className={`flex items-center gap-2 px-3 py-1 border text-xs font-extrabold uppercase rounded-full shadow-sm transition-all ${isPlaying && fps > 0 ? 'bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 animate-pulse' : 'bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500'}`}>
+              <span className={`flex items-center gap-2 px-3 py-1 border text-xs font-extrabold uppercase rounded-full shadow-sm transition-all ${isPlaying && fps > 0 ? 'bg-rose-100 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 animate-pulse' : 'bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500'}`}>
                 <span className={`relative flex h-2 w-2 ${isPlaying && fps > 0 ? 'block' : 'hidden'}`}>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
                 </span>
                 {isPlaying && fps > 0 ? 'Live Streaming' : 'Signal Lost'}
               </span>
@@ -137,7 +140,7 @@ export default function CameraFeed({ user, onLogout }) {
                     <span className="px-2 py-1 bg-black/50 backdrop-blur-md rounded text-[10px] font-mono text-emerald-400 border border-emerald-500/30">
                       FPS: {fps}
                     </span>
-                    <span className="px-2 py-1 bg-black/50 backdrop-blur-md rounded text-[10px] font-mono text-blue-400 border border-blue-500/30">
+                    <span className="px-2 py-1 bg-black/50 backdrop-blur-md rounded text-[10px] font-mono text-orange-400 border border-orange-500/30">
                       RGB565 RAW
                     </span>
                     {isNightVision && (
@@ -164,7 +167,7 @@ export default function CameraFeed({ user, onLogout }) {
                         className="w-full h-full object-contain" 
                       />
                       
-                      {/* AI Bounding Box Overlay (Simulated on top of real image) */}
+                      {/* AI Bounding Box Overlay (Simulated) */}
                       {isAiEnabled && (
                         <div className="absolute top-1/4 left-1/3 w-40 h-40 border-2 border-emerald-400 rounded-lg shadow-[0_0_20px_rgba(52,211,153,0.4)] flex items-end justify-center transition-all duration-500 hover:scale-105 cursor-crosshair">
                           <div className="bg-emerald-500/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 mb-[-12px] rounded-md shadow-sm flex items-center gap-1">
@@ -216,8 +219,12 @@ export default function CameraFeed({ user, onLogout }) {
                       {isAiEnabled ? 'AI Overlay ON' : 'AI Overlay OFF'}
                     </button>
 
-                    <button className="p-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors" title="Snapshot">
-                      <Aperture className="w-5 h-5" />
+                    <button 
+                      onClick={handleQuickDiagnosis}
+                      className="p-2 rounded-lg bg-rose-500/20 border border-rose-500/50 text-rose-400 hover:bg-rose-500 hover:text-white transition-colors" 
+                      title="Perform Disease Check"
+                    >
+                      <Stethoscope className="w-5 h-5" />
                     </button>
                   </div>
 
@@ -272,11 +279,11 @@ export default function CameraFeed({ user, onLogout }) {
             {/* RIGHT COLUMN: SIDEBAR (1/3 Width) */}
             <div className="space-y-6">
               
-              {/* ✅ 1. REAL DETECTION LOG CARD */}
-              <div className="bg-indigo-50 dark:bg-slate-800 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[400px] transition-colors duration-300">
-                <div className="bg-white dark:bg-slate-900/50 px-5 py-4 border-b border-indigo-100 dark:border-slate-700 flex justify-between items-center">
+              {/* ✅ 1. REAL DETECTION LOG CARD (UPDATED COLOR) */}
+              <div className="bg-orange-50 dark:bg-slate-800 rounded-2xl border border-orange-100 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[400px] transition-colors duration-300">
+                <div className="bg-white dark:bg-slate-900/50 px-5 py-4 border-b border-orange-100 dark:border-slate-700 flex justify-between items-center">
                   <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    <History className="w-4 h-4 text-indigo-500" />
+                    <History className="w-4 h-4 text-orange-500" />
                     Live Capture Log
                   </h3>
                   <button onClick={fetchCameraData} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors text-slate-400">
@@ -284,23 +291,23 @@ export default function CameraFeed({ user, onLogout }) {
                   </button>
                 </div>
                 
-                <div className="p-4 space-y-3 overflow-y-auto scrollbar-thin scrollbar-thumb-indigo-200 dark:scrollbar-thumb-slate-600">
+                <div className="p-4 space-y-3 overflow-y-auto scrollbar-thin scrollbar-thumb-orange-200 dark:scrollbar-thumb-slate-600">
                   {logs.length === 0 ? (
                     <div className="text-center text-slate-400 text-xs py-10">No captures yet</div>
                   ) : (
                     logs.map((log) => (
-                      <div key={log.id} className="relative pl-4 border-l-2 border-indigo-200 dark:border-slate-600 py-1 group animate-in fade-in slide-in-from-right-4 duration-300">
-                        <div className="flex justify-between items-start">
+                      <div key={log.id} className="relative pl-4 border-l-2 border-orange-300 dark:border-slate-600 py-2 group animate-in fade-in slide-in-from-right-4 duration-300 hover:bg-orange-100/50 dark:hover:bg-slate-700/30 rounded-r-lg transition-colors cursor-pointer">
+                        <div className="flex justify-between items-center pr-2">
                           <div>
-                            <span className="text-xs font-bold uppercase text-emerald-600 dark:text-emerald-400">
-                              {log.description || "Captured Frame"}
+                            <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
+                              {log.description || "RGB565 Capture"}
                             </span>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                               {new Date(log.timestamp).toLocaleTimeString()}
                             </p>
                           </div>
-                          {/* Mini Thumbnail */}
-                          <img src={log.url} alt="mini" className="w-8 h-8 rounded border border-slate-200" />
+                          {/* Colored Box Placeholder (Matches Screenshot) */}
+                          <div className="w-6 h-6 rounded bg-gradient-to-br from-orange-400 to-amber-600 shadow-sm"></div>
                         </div>
                       </div>
                     ))

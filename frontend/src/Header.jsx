@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Camera, Activity, Settings, Bell, Moon, Sun, LogOut, ChevronDown, User as UserIcon, X, CheckCheck, AlertTriangle, AlertCircle } from 'lucide-react';
+import { 
+  LayoutDashboard, Camera, Activity, Settings, Bell, Moon, Sun, 
+  LogOut, ChevronDown, User as UserIcon, X, CheckCheck, 
+  AlertTriangle, AlertCircle, Stethoscope 
+} from 'lucide-react';
 
 export default function Header({ isDarkMode, toggleTheme, user, onLogout, notifications = [], onClearNotification }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -46,6 +50,8 @@ export default function Header({ isDarkMode, toggleTheme, user, onLogout, notifi
           <NavLink to="/" icon={LayoutDashboard} text="Dashboard" />
           <NavLink to="/camera" icon={Camera} text="Camera Feed" />
           <NavLink to="/predictions" icon={Activity} text="Predictions" />
+          {/* NEW HEALTH LINK */}
+          <NavLink to="/health" icon={Stethoscope} text="Disease Check" />
           <NavLink to="/settings" icon={Settings} text="Settings" />
         </nav>
 

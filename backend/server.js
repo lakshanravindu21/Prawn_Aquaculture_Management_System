@@ -474,7 +474,7 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // ==========================================
-// 🔮 AI PREDICTION ENDPOINT (NEW!)
+// 🔮 AI PREDICTION ENDPOINT
 // ==========================================
 app.get('/api/predict/:pondId', async (req, res) => {
   const { pondId } = req.params;
@@ -515,6 +515,36 @@ app.get('/api/predict/:pondId', async (req, res) => {
       console.error("❌ AI Error:", error.message);
       // Don't crash frontend, just say AI is offline
       res.status(500).json({ error: "AI Service Offline" });
+  }
+});
+
+// ==========================================
+// 🦠 DISEASE DETECTION ROUTE (NEW!)
+// ==========================================
+app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image uploaded" });
+    }
+
+    console.log("🧬 Analyzing Image:", req.file.filename);
+
+    // Get the full path of the uploaded file
+    const imagePath = path.resolve(req.file.path);
+
+    // Send file path to Python AI
+    const aiResponse = await axios.post('http://127.0.0.1:5000/analyze-image', {
+      imagePath: imagePath
+    });
+
+    res.json({
+      ...aiResponse.data,
+      imageUrl: `http://localhost:${PORT}/uploads/${req.file.filename}`
+    });
+
+  } catch (error) {
+    console.error("❌ Analysis Failed:", error.message);
+    res.status(500).json({ error: "Analysis service unavailable" });
   }
 });
 

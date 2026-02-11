@@ -3,8 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Dashboard from './Dashboard';
 import CameraFeed from './CameraFeed';
 import Predictions from './Predictions';
+import Health from './Health'; // <--- NEW IMPORT
 import Settings from './Settings';
-import AccountSettings from './AccountSettings'; // <--- Import New Component
+import AccountSettings from './AccountSettings';
 // Import Auth Pages
 import SignIn from './SignIn';
 import SignUp from './SignUp';
@@ -32,8 +33,6 @@ function App() {
   };
 
   // 4. Protected Route Wrapper
-  // This component wraps pages that require login. 
-  // If no user, it kicks them back to /signin
   const ProtectedRoute = ({ children }) => {
     if (!user) {
       return <Navigate to="/signin" replace />;
@@ -82,7 +81,16 @@ function App() {
           } 
         />
         
-        {/* New Account Settings Route */}
+        {/* New Health Page Route */}
+        <Route 
+          path="/health" 
+          element={
+            <ProtectedRoute>
+              <Health user={user} onLogout={handleLogout} isDarkMode={false} toggleTheme={() => {}} />
+            </ProtectedRoute>
+          } 
+        />
+        
         <Route 
           path="/account" 
           element={
