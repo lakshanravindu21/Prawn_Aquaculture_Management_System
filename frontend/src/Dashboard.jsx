@@ -167,9 +167,7 @@ export default function Dashboard({ user, onLogout }) {
     aerator: 'AUTO', pump: 'OFF', feeder: 'AUTO', heater: 'OFF', phDoser: 'AUTO', bioFilter: 'ON'
   });
 
-  const [alerts, setAlerts] = useState([
-    { id: 1, title: 'System Active', msg: 'Soft-sensors enabled for Ammonia & DO.', time: 'Now', type: 'info' },
-  ]);
+  const [alerts, setAlerts] = useState([]);
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const dismissAlert = (id) => setAlerts(alerts.filter(a => a.id !== id));
@@ -181,7 +179,6 @@ export default function Dashboard({ user, onLogout }) {
 
   // --- DATA GENERATOR (Fallback) ---
   const generateChartData = () => {
-    // ... (Your existing generator code, kept for fallback)
     const data = [];
     const now = new Date();
     const currentHour = now.getHours();
@@ -222,20 +219,15 @@ export default function Dashboard({ user, onLogout }) {
         let turb = parseFloat(r.turbidity);
         
         // 1. Calculate DO (If sensor sends 0)
-        // Physics: DO drops as Temp & Salinity increase
         let finalDO = r.dissolvedOxygen;
         if (!finalDO || finalDO === 0) {
-            // Base Saturation at 25C is approx 8.2 mg/L
-            // Adjust: -0.2 per degree over 25, -0.05 per ppt salinity
             let calculated = 14.6 - (0.37 * temp) - (0.06 * sal);
             finalDO = Math.max(0, calculated).toFixed(2);
         }
 
         // 2. Calculate Ammonia (If sensor sends 0)
-        // Physics: High Turbidity (Waste) = Higher Ammonia potential
         let finalAmmonia = r.ammonia;
         if (!finalAmmonia || finalAmmonia === 0) {
-            // Mapping: 0-100 NTU -> 0.00 - 0.20 mg/L
             let calculated = turb * 0.002; 
             finalAmmonia = Math.max(0, calculated).toFixed(3);
         }
@@ -244,10 +236,50 @@ export default function Dashboard({ user, onLogout }) {
             ...r,
             dissolvedOxygen: finalDO,
             ammonia: finalAmmonia,
-            // Format Time
             time: new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
         };
     });
+  };
+
+  // ✅ NOTIFICATION SERVICE LOGIC
+  const checkThresholds = (currentData) => {
+    if (!currentData) return;
+
+    const newAlerts = [];
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // DISSOLVED OXYGEN CHECK
+    const doVal = parseFloat(currentData.dissolvedOxygen);
+    if (doVal < 4.0) {
+        newAlerts.push({ id: 'do-crit', title: 'Critical Oxygen Level', msg: `DO dropped to ${doVal} mg/L. Activating aerators recommended.`, time: timestamp, type: 'critical' });
+    } else if (doVal < 5.0) {
+        newAlerts.push({ id: 'do-warn', title: 'Low Oxygen Warning', msg: `DO is ${doVal} mg/L. Monitor closely.`, time: timestamp, type: 'warning' });
+    }
+
+    // AMMONIA CHECK
+    const ammVal = parseFloat(currentData.ammonia);
+    if (ammVal > 0.05) {
+        newAlerts.push({ id: 'nh3-crit', title: 'Toxic Ammonia', msg: `Ammonia at ${ammVal} mg/L. Immediate water exchange required.`, time: timestamp, type: 'critical' });
+    } else if (ammVal > 0.02) {
+        newAlerts.push({ id: 'nh3-warn', title: 'Ammonia Rising', msg: `Ammonia detected at ${ammVal} mg/L.`, time: timestamp, type: 'warning' });
+    }
+
+    // TEMPERATURE CHECK
+    const tempVal = parseFloat(currentData.temperature);
+    if (tempVal > 32 || tempVal < 24) {
+        newAlerts.push({ id: 'temp-warn', title: 'Temp Deviation', msg: `Water temperature is ${tempVal}°C.`, time: timestamp, type: 'warning' });
+    }
+
+    // pH CHECK
+    const phVal = parseFloat(currentData.ph);
+    if (phVal < 7.0 || phVal > 9.0) {
+        newAlerts.push({ id: 'ph-crit', title: 'pH Critical', msg: `pH level ${phVal} is unsafe.`, time: timestamp, type: 'critical' });
+    }
+
+    // Only update if alerts have changed to avoid loops
+    if (JSON.stringify(newAlerts) !== JSON.stringify(alerts)) {
+        setAlerts(newAlerts);
+    }
   };
 
   // ✅ FUNCTION TO FETCH REAL BACKEND DATA
@@ -264,8 +296,13 @@ export default function Dashboard({ user, onLogout }) {
         const processedData = calculateSoftSensors(res.data).reverse();
         
         setReadings(processedData);
-        setLatest(processedData[processedData.length - 1]); // Set newest (calculated) as latest
-      
+        
+        const currentReading = processedData[processedData.length - 1];
+        setLatest(currentReading); 
+        
+        // RUN NOTIFICATION CHECK
+        checkThresholds(currentReading);
+       
       } else {
         // Fallback
         setReadings(generateChartData());
@@ -304,11 +341,14 @@ export default function Dashboard({ user, onLogout }) {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-white dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300 flex flex-col">
         
+        {/* Pass Notifications to Header */}
         <Header 
           isDarkMode={isDarkMode} 
           toggleTheme={toggleTheme} 
           user={user} 
           onLogout={onLogout} 
+          notifications={alerts} 
+          onClearNotification={dismissAlert}
         />
 
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">

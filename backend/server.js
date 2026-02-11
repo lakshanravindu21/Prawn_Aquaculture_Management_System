@@ -10,6 +10,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
+const axios = require('axios'); // <--- ADDED AXIOS HERE
 
 const app = express();
 const prisma = new PrismaClient();
@@ -420,8 +421,8 @@ app.post('/api/readings', async (req, res) => {
         dissolvedOxygen: parseFloat(dissolvedOxygen), 
         temperature: parseFloat(temp),
         turbidity: parseFloat(turbidity),
-        ammonia: parseFloat(ammonia),                 
-        salinity: parseFloat(salValue),               
+        ammonia: parseFloat(ammonia),                  
+        salinity: parseFloat(salValue),                
         pond: { connect: { id: parseInt(pondId) } }
       }
     });
@@ -471,6 +472,52 @@ app.post('/api/seed', async (req, res) => {
     res.json({ message: "Seeded", pond });
   } catch (error) { res.status(500).json({ error: "Seed failed" }); }
 });
+
+// ==========================================
+// 🔮 AI PREDICTION ENDPOINT (NEW!)
+// ==========================================
+app.get('/api/predict/:pondId', async (req, res) => {
+  const { pondId } = req.params;
+  try {
+      // 1. Get the last 60 readings from Database
+      const history = await prisma.sensorReading.findMany({
+          where: { pondId: parseInt(pondId) },
+          orderBy: { timestamp: 'desc' },
+          take: 60
+      });
+
+      // 2. If we don't have enough data, send a warning
+      if (history.length < 60) {
+          return res.status(200).json({ 
+              warning: "Not enough data", 
+              message: `Need 60 data points, found ${history.length}` 
+          });
+      }
+
+      // 3. Format data for Python (Reverse so oldest is first)
+      const formattedData = history.reverse().map(r => ({
+          do: r.dissolvedOxygen,
+          ph: r.ph,
+          temp: r.temperature,
+          turbidity: r.turbidity,
+          ammonia: r.ammonia,
+          salinity: r.salinity
+      }));
+
+      // 4. Send to Python Server
+      const aiResponse = await axios.post('http://127.0.0.1:5000/predict', {
+          readings: formattedData
+      });
+
+      res.json(aiResponse.data);
+
+  } catch (error) {
+      console.error("❌ AI Error:", error.message);
+      // Don't crash frontend, just say AI is offline
+      res.status(500).json({ error: "AI Service Offline" });
+  }
+});
+
 
 // ==========================================
 // 🛠 BMP CONVERTERS
