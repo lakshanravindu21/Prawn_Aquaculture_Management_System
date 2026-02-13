@@ -53,8 +53,9 @@ async function exportDataset() {
 
       fs.writeFileSync(filePath, base64Data, { encoding: 'base64' });
 
-      // Append to CSV
-      const csvRow = `${meta.id},${meta.timestamp.toISOString()},${fileName},${meta.pondId}\n`;
+      // ✅ Updated to Local Sri Lanka Time for readability
+      const localTimeStr = meta.timestamp.toLocaleString('en-LK', { hour12: false });
+      const csvRow = `${meta.id},"${localTimeStr}",${fileName},${meta.pondId}\n`;
       fs.appendFileSync(labelsCsvPath, csvRow);
 
       process.stdout.write("."); // Progress dot
@@ -81,7 +82,9 @@ async function exportDataset() {
   let csvContent = "id,timestamp,pond_id,temp,ph,do,ammonia,turbidity,salinity\n";
 
   readings.forEach(r => {
-    csvContent += `${r.id},${r.timestamp.toISOString()},${r.pondId},${r.temperature},${r.ph},${r.dissolvedOxygen},${r.ammonia},${r.turbidity},${r.salinity}\n`;
+    // ✅ Updated to Local Sri Lanka Time for readability
+    const localTimeStr = r.timestamp.toLocaleString('en-LK', { hour12: false });
+    csvContent += `${r.id},"${localTimeStr}",${r.pondId},${r.temperature},${r.ph},${r.dissolvedOxygen},${r.ammonia},${r.turbidity},${r.salinity}\n`;
   });
 
   fs.writeFileSync(sensorCsvPath, csvContent);

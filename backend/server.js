@@ -388,46 +388,52 @@ app.get('/api/ponds', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to fetch ponds" }); }
 });
 
-// ✅ UPDATED READINGS ROUTE
+// ✅ UPDATED READINGS ROUTE WITH BACKEND CALCULATIONS & PH FIX
 app.post('/api/readings', async (req, res) => {
-  let { ph, do: dissolvedOxygen, temp, turbidity, ammonia, salinity, pondId } = req.body;
+  let { ph, temp, turbidity, salinity, pondId } = req.body;
+  let dissolvedOxygen = req.body.do;
+  let ammonia = req.body.ammonia;
 
-  // 1. Salinity Unit Fix (PPM -> PPT)
+  // ✅ 1. Capture dynamic pH from sensor data (Default to 7.0 if invalid)
+  const phVal = parseFloat(ph) || 7.0; 
+  const tempVal = parseFloat(temp) || 28;
+  const turbVal = parseFloat(turbidity) || 0;
+  
+  // 2. Salinity Unit Fix (PPM -> PPT)
   let salValue = parseFloat(salinity) || 0;
   if (salValue > 50) {
       salValue = salValue / 1000;
   }
 
-  // 2. Calculate Dissolved Oxygen (DO)
+  // 3. BACKEND LOGIC: Calculate Dissolved Oxygen (DO)
   if (!dissolvedOxygen || parseFloat(dissolvedOxygen) === 0) {
-      const t = parseFloat(temp) || 25;
-      let calcDO = 14.6 - (0.37 * t) - (0.06 * salValue);
-      calcDO = Math.max(0, calcDO);
-      if (calcDO > 14) calcDO = 14; 
-      dissolvedOxygen = calcDO.toFixed(2);
+      let calcDO = 14.6 - (0.33 * tempVal) - (0.05 * salValue);
+      dissolvedOxygen = Math.max(0.8, calcDO);
   }
 
-  // 3. Calculate Ammonia
+  // 4. BACKEND LOGIC: Calculate Ammonia (Biological Baseline)
+  // Uses the current pH and Temperature to derive a realistic gas level
   if (!ammonia || parseFloat(ammonia) === 0) {
-      const turb = parseFloat(turbidity) || 0;
-      let calcAmmonia = turb * 0.002;
-      ammonia = Math.max(0, calcAmmonia).toFixed(3);
+      let biologicalFactor = (tempVal * 0.0008) + (phVal * 0.001);
+      let turbidityFactor = turbVal * 0.002;
+      let calcAmmonia = biologicalFactor + turbidityFactor;
+      ammonia = Math.max(0.015, calcAmmonia);
   }
 
   try {
     const reading = await prisma.sensorReading.create({
       data: {
-        ph: parseFloat(ph),
-        dissolvedOxygen: parseFloat(dissolvedOxygen), 
-        temperature: parseFloat(temp),
-        turbidity: parseFloat(turbidity),
-        ammonia: parseFloat(ammonia),                  
+        ph: phVal, // ✅ Now stores the sensor value correctly
+        dissolvedOxygen: parseFloat(parseFloat(dissolvedOxygen).toFixed(2)), 
+        temperature: tempVal,
+        turbidity: turbVal,
+        ammonia: parseFloat(parseFloat(ammonia).toFixed(3)),                   
         salinity: parseFloat(salValue),                
         pond: { connect: { id: parseInt(pondId) } }
       }
     });
     
-    console.log(`📡 Logged: Temp=${temp} | Sal=${salValue.toFixed(1)}ppt | DO=${dissolvedOxygen} | NH3=${ammonia}`);
+    console.log(`📡 Logged: pH=${phVal} | Temp=${tempVal} | DO=${dissolvedOxygen} | NH3=${ammonia}`);
     res.status(201).json(reading);
   } catch (error) { 
     console.error("❌ Save Error:", error.message);
@@ -456,7 +462,7 @@ app.post('/api/actuators/:id/toggle', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to toggle actuator" }); }
 });
 
-// ✅ UPDATED SEED
+// ✅ SEED ROUTE
 app.post('/api/seed', async (req, res) => {
   try {
     const pondCount = await prisma.pond.count();
@@ -513,13 +519,12 @@ app.get('/api/predict/:pondId', async (req, res) => {
 
   } catch (error) {
       console.error("❌ AI Error:", error.message);
-      // Don't crash frontend, just say AI is offline
       res.status(500).json({ error: "AI Service Offline" });
   }
 });
 
 // ==========================================
-// 🦠 DISEASE DETECTION ROUTE (NEW!)
+// 🦠 DISEASE DETECTION ROUTE
 // ==========================================
 app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) => {
   try {
@@ -528,11 +533,8 @@ app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) =>
     }
 
     console.log("🧬 Analyzing Image:", req.file.filename);
-
-    // Get the full path of the uploaded file
     const imagePath = path.resolve(req.file.path);
 
-    // Send file path to Python AI
     const aiResponse = await axios.post('http://127.0.0.1:5000/analyze-image', {
       imagePath: imagePath
     });
@@ -573,9 +575,7 @@ function convertGrayscaleToBMP(buffer, width, height) {
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
       const val = buffer[y * width + x];
-      bmp[pos++] = val; 
-      bmp[pos++] = val; 
-      bmp[pos++] = val; 
+      bmp[pos++] = val; bmp[pos++] = val; bmp[pos++] = val; 
     }
     pos += pad; 
   }
@@ -610,9 +610,7 @@ function convertRGB565toBMP(buffer, width, height) {
       const g = ((val >> 5) & 0x3F) << 2;
       const b = (val & 0x1F) << 3;
 
-      bmp[pos++] = b;
-      bmp[pos++] = g;
-      bmp[pos++] = r;
+      bmp[pos++] = b; bmp[pos++] = g; bmp[pos++] = r;
     }
     pos += pad;
   }
@@ -629,5 +627,4 @@ app.get('/', (req, res) => {
 // Start Server
 app.listen(PORT, () => {
   console.log(`🚀 AquaSmart Backend running on http://localhost:${PORT}`);
-  console.log(`🔐 Auth Secret Configured (Len: ${SECRET_KEY.length})`);
 });
