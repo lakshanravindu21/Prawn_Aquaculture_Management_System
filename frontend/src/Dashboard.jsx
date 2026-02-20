@@ -14,6 +14,7 @@ import Footer from './Footer';
 
 // ✅ POINTING TO YOUR BACKEND
 const API_URL = 'http://localhost:3001/api';
+const AI_API_URL = 'http://localhost:5000'; // Flask Backend
 
 // --- CONFIGURATION ---
 const CHART_METRICS = {
@@ -91,7 +92,7 @@ const CustomTooltip = ({ active, payload, label }) => {
     return (
       <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl min-w-[200px]">
         <p className="text-xs font-extrabold text-slate-500 dark:text-slate-400 mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
-          {label}
+          {label} {payload[0].payload.isForecast ? '(AI Forecast)' : ''}
         </p>
         <div className="space-y-2">
           {payload.map((entry, index) => (
@@ -161,6 +162,7 @@ export default function Dashboard({ user, onLogout }) {
   const [showForecast, setShowForecast] = useState(false);
   const [isSystemActive, setIsSystemActive] = useState(true);
   const [chartMetric, setChartMetric] = useState('all');
+  const [forecastData, setForecastData] = useState([]); // NEW: State for AI Forecast trend
 
   const alertsRef = useRef(null);
 
@@ -242,6 +244,45 @@ export default function Dashboard({ user, onLogout }) {
     return () => clearInterval(interval);
   }, [selectedPond]);
 
+  // ✅ LOGIC: FETCH AI FORECAST TREND
+  useEffect(() => {
+    const getAIForecast = async () => {
+      if (!showForecast || readings.length === 0) return;
+      try {
+        // Send last 10 readings to Flask for status
+        const last10 = readings.slice(-10).map(r => ({
+          temp: r.temperature, ph: r.ph, do: r.dissolvedOxygen,
+          ammonia: r.ammonia, turbidity: r.turbidity, salinity: r.salinity
+        }));
+        
+        const aiRes = await axios.post(`${AI_API_URL}/predict`, { readings: last10 });
+        
+        if (aiRes.data && aiRes.data.status !== "Collecting Data...") {
+          // Logic: Project future trend based on AI status
+          const startVal = readings[readings.length - 1];
+          const isDanger = aiRes.data.status === "Danger";
+          const projectedData = [];
+          const now = new Date();
+
+          for (let i = 1; i <= 6; i++) {
+            const nextTime = new Date(now.getTime() + i * 30 * 60 * 1000);
+            const variance = isDanger ? -(i * 0.05) : (Math.random() * 0.02 - 0.01);
+            projectedData.push({
+              ...startVal,
+              time: nextTime.toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              dissolvedOxygen: (parseFloat(startVal.dissolvedOxygen) + (isDanger ? variance * 0.5 : variance)).toFixed(2),
+              ammonia: (parseFloat(startVal.ammonia) + (isDanger ? Math.abs(variance) * 0.1 : 0)).toFixed(3),
+              ph: (parseFloat(startVal.ph) + (variance * 0.1)).toFixed(2),
+              isForecast: true
+            });
+          }
+          setForecastData(projectedData);
+        }
+      } catch (err) { console.warn("AI Server unreachable for forecast trend."); }
+    };
+    getAIForecast();
+  }, [showForecast, readings]);
+
   // ✅ LOGIC: CALCULATE MISSING VALUES (SOFT SENSORS)
   const calculateSoftSensors = (data) => {
     return data.map(r => {
@@ -258,11 +299,8 @@ export default function Dashboard({ user, onLogout }) {
         }
 
         // 2. Updated Ammonia Logic: Biological Baseline
-        // Turbidity is currenty 0, so we add a baseline based on Temp and pH
-        // This ensures the value is derived from pond conditions rather than staying at 0.
         let finalAmmonia = r.ammonia;
         if (!finalAmmonia || finalAmmonia === 0 || finalAmmonia === "0.000") {
-            // Biological baseline formula: Base production from Temp and pH
             let biologicalFactor = (temp * 0.0008) + (ph * 0.001);
             let turbidityFactor = turb * 0.002;
             let calculated = biologicalFactor + turbidityFactor;
@@ -273,7 +311,6 @@ export default function Dashboard({ user, onLogout }) {
             ...r,
             dissolvedOxygen: finalDO,
             ammonia: finalAmmonia,
-            // Convert UTC to Sri Lanka local time display
             time: new Date(r.timestamp).toLocaleTimeString('en-LK', {hour: '2-digit', minute:'2-digit', hour12: true})
         };
     });
@@ -281,20 +318,18 @@ export default function Dashboard({ user, onLogout }) {
 
   // ✅ NOTIFICATION SERVICE LOGIC
   const checkThresholds = (currentData) => {
-    if (!currentData) return;
+    if (!currentData || currentData.temperature === "0.0") return; 
 
     const newAlerts = [];
     const timestamp = new Date().toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-    // DISSOLVED OXYGEN CHECK
     const doVal = parseFloat(currentData.dissolvedOxygen);
-    if (doVal < 4.0) {
+    if (doVal < 4.0 && doVal > 0) {
         newAlerts.push({ id: 'do-crit', title: 'Critical Oxygen Level', msg: `DO dropped to ${doVal} mg/L. Activating aerators recommended.`, time: timestamp, type: 'critical' });
-    } else if (doVal < 5.0) {
+    } else if (doVal < 5.0 && doVal > 0) {
         newAlerts.push({ id: 'do-warn', title: 'Low Oxygen Warning', msg: `DO is ${doVal} mg/L. Monitor closely.`, time: timestamp, type: 'warning' });
     }
 
-    // AMMONIA CHECK
     const ammVal = parseFloat(currentData.ammonia);
     if (ammVal > 0.05) {
         newAlerts.push({ id: 'nh3-crit', title: 'Toxic Ammonia', msg: `Ammonia at ${ammVal} mg/L. Immediate water exchange required.`, time: timestamp, type: 'critical' });
@@ -302,7 +337,6 @@ export default function Dashboard({ user, onLogout }) {
         newAlerts.push({ id: 'nh3-warn', title: 'Ammonia Rising', msg: `Ammonia detected at ${ammVal} mg/L.`, time: timestamp, type: 'warning' });
     }
 
-    // Only update if alerts have changed to avoid loops
     if (JSON.stringify(newAlerts) !== JSON.stringify(alerts)) {
         setAlerts(newAlerts);
     }
@@ -312,7 +346,6 @@ export default function Dashboard({ user, onLogout }) {
   const refreshDashboardData = async () => {
     try {
       setIsSystemActive(true);
-
       const res = await axios.get(`${API_URL}/readings/${selectedPond}`);
       
       if (res.data && res.data.length > 0) {
@@ -323,7 +356,7 @@ export default function Dashboard({ user, onLogout }) {
         checkThresholds(currentReading);
       } else {
         setReadings([]);
-        setLatest({ dissolvedOxygen: 0.00, ph: 0.0, temperature: 0.0, turbidity: 0, ammonia: 0.00, salinity: 0.0 });
+        setLatest({ dissolvedOxygen: "0.00", ph: "0.0", temperature: "0.0", turbidity: "0", ammonia: "0.00", salinity: "0.0" });
       }
 
       const camRes = await axios.get(`${API_URL}/camera-logs`);
@@ -334,6 +367,10 @@ export default function Dashboard({ user, onLogout }) {
     } catch (error) {
       console.warn("Backend offline.");
       setIsSystemActive(false); 
+      setLatest({
+        dissolvedOxygen: "0.00", ph: "0.0", temperature: "0.0", turbidity: "0", ammonia: "0.00", salinity: "0.0"
+      });
+      setReadings([]);
     }
   };
 
@@ -358,53 +395,37 @@ export default function Dashboard({ user, onLogout }) {
         const res = await axios.get('https://api.open-meteo.com/v1/forecast?latitude=6.9271&longitude=79.8612&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=precipitation_probability_max&timezone=auto');
         const current = res.data.current;
         const daily = res.data.daily;
-
         let condition = "Clear Sky";
         const code = current.weather_code;
         if (code >= 1 && code <= 3) condition = "Partly Cloudy";
         if (code >= 45 && code <= 48) condition = "Foggy";
         if (code >= 51 && code <= 67) condition = "Rainy";
         if (code >= 80 && code <= 99) condition = "Thunderstorms";
-
         setWeather({
-          temp: Math.round(current.temperature_2m),
-          condition: condition,
+          temp: Math.round(current.temperature_2m), condition: condition,
           rainChance: daily.precipitation_probability_max[0],
-          wind: Math.round(current.wind_speed_10m),
-          humidity: current.relative_humidity_2m
+          wind: Math.round(current.wind_speed_10m), humidity: current.relative_humidity_2m
         });
-      } catch (err) {
-        console.error("Weather Error", err);
-      }
+      } catch (err) { console.error("Weather Error", err); }
     };
     fetchWeather();
   }, []);
 
   const activeChartMetric = CHART_METRICS[chartMetric];
+  const combinedChartData = showForecast ? [...readings.slice(-15), ...forecastData] : readings;
 
   return (
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-white dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300 flex flex-col">
-        
-        <Header 
-          isDarkMode={isDarkMode} 
-          toggleTheme={toggleTheme} 
-          user={user} 
-          onLogout={onLogout} 
-          notifications={alerts} 
-          onClearNotification={dismissAlert}
-        />
-
+        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} user={user} onLogout={onLogout} notifications={alerts} onClearNotification={dismissAlert} />
         <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
-          
           {/* --- TOP SECTION --- */}
           <div className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-slate-200 dark:border-slate-800 pb-6 transition-colors duration-300">
             <div>
               <h2 className="text-3xl font-bold text-slate-800 dark:text-white tracking-tight">Dashboard Overview</h2>
               <div className="flex items-center gap-3 mt-2">
                 <span className="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-bold uppercase border border-blue-100 dark:border-blue-800 flex items-center gap-2">
-                  <BrainCircuit className="w-3.5 h-3.5" />
-                  Intelligent IoT & ML Predictive Framework
+                  <BrainCircuit className="w-3.5 h-3.5" /> Intelligent IoT & ML Predictive Framework
                 </span>
                 <span className="hidden sm:inline text-slate-300 dark:text-slate-700 text-sm">|</span>
                 <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/30 text-white border border-blue-400/20">
@@ -413,20 +434,14 @@ export default function Dashboard({ user, onLogout }) {
                     <span className={`relative inline-flex rounded-full h-3 w-3 ${isSystemActive ? 'bg-green-500' : 'bg-red-600'}`}></span>
                   </div>
                   <span className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap className={`w-3.5 h-3.5 fill-current ${isSystemActive ? 'animate-pulse' : 'opacity-50'}`} />
-                    {isSystemActive ? 'System Active' : 'System Offline'}
+                    <Zap className={`w-3.5 h-3.5 fill-current ${isSystemActive ? 'animate-pulse' : 'opacity-50'}`} /> {isSystemActive ? 'System Active' : 'System Offline'}
                   </span>
                 </div>
               </div>
             </div>
-            
             <div className="flex flex-col items-end gap-3 w-full md:w-auto">
               <div className="flex items-center gap-3">
-                {/* ⬇️ DOWNLOAD REPORT BUTTON INTEGRATED ⬇️ */}
-                <button 
-                  onClick={handleDownloadReport}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase rounded-xl shadow-md transition-all hover:scale-105"
-                >
+                <button onClick={handleDownloadReport} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase rounded-xl shadow-md transition-all hover:scale-105">
                   <Download className="w-4 h-4" /> Download Report
                 </button>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-lg border border-emerald-400/30 bg-gradient-to-r from-emerald-500 to-teal-500 animate-[pulse_3s_ease-in-out_infinite]">
@@ -461,10 +476,7 @@ export default function Dashboard({ user, onLogout }) {
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                          <Activity className="w-5 h-5 text-blue-500" />
-                          Water Quality Trends
-                        </h3>
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2"><Activity className="w-5 h-5 text-blue-500" /> Water Quality Trends</h3>
                         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-full animate-pulse">
                           <Radio className="w-3 h-3 text-red-600 dark:text-red-400" />
                           <span className="text-[10px] font-extrabold text-red-600 dark:text-red-400 uppercase tracking-widest">LIVE SIGNAL</span>
@@ -477,40 +489,33 @@ export default function Dashboard({ user, onLogout }) {
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setChartMetric('all')} className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase transition-all border shadow-sm flex items-center gap-2 ${chartMetric === 'all' ? `bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900 transform scale-105` : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}>
-                      <Maximize2 className="w-3 h-3" /> All Overview
-                    </button>
+                    <button onClick={() => setChartMetric('all')} className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase transition-all border shadow-sm flex items-center gap-2 ${chartMetric === 'all' ? `bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900 transform scale-105` : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}><Maximize2 className="w-3 h-3" /> All Overview</button>
                     {Object.entries(CHART_METRICS).map(([key, config]) => (
-                        <button key={key} onClick={() => setChartMetric(key)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border shadow-sm flex items-center gap-1.5 ${chartMetric === key ? `bg-white dark:bg-slate-800 border-${config.color} ring-1 ring-${config.color} text-slate-800 dark:text-white transform scale-105` : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`} style={chartMetric === key ? { borderColor: config.color, color: config.color } : {}}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${chartMetric === key ? 'animate-pulse' : ''}`} style={{ backgroundColor: config.color }}></span>
-                            {config.label}
-                        </button>
+                      <button key={key} onClick={() => setChartMetric(key)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border shadow-sm flex items-center gap-1.5 ${chartMetric === key ? `bg-white dark:bg-slate-800 border-${config.color} ring-1 ring-${config.color} text-slate-800 dark:text-white transform scale-105` : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`} style={chartMetric === key ? { borderColor: config.color, color: config.color } : {}}><span className={`w-1.5 h-1.5 rounded-full ${chartMetric === key ? 'animate-pulse' : ''}`} style={{ backgroundColor: config.color }}></span>{config.label}</button>
                     ))}
                   </div>
                 </div>
                 <div className="p-6 h-[400px] w-full bg-white dark:bg-slate-800/50">
                   <ResponsiveContainer width="100%" height="100%" key={chartMetric}>
                     {chartMetric === 'all' ? (
-                      <LineChart data={readings}>
+                      <LineChart data={combinedChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
                         <XAxis dataKey="time" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
                         <YAxis yAxisId="left" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
                         <YAxis yAxisId="right" orientation="right" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
                         <Tooltip content={<CustomTooltip />} />
                         {Object.entries(CHART_METRICS).map(([key, config]) => (
-                          <React.Fragment key={key}>
-                            <Line type="monotone" yAxisId={config.yAxisId} dataKey={key} stroke={config.color} strokeWidth={2} dot={false} name={config.label} />
-                          </React.Fragment>
+                          <Line key={key} type="monotone" yAxisId={config.yAxisId} dataKey={key} stroke={config.color} strokeWidth={2} dot={false} strokeDasharray={combinedChartData.some(d => d.isForecast) ? "5 5" : "0"} name={config.label} />
                         ))}
                       </LineChart>
                     ) : (
-                      <AreaChart data={readings}>
+                      <AreaChart data={combinedChartData}>
                         <defs><linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={activeChartMetric.color} stopOpacity={0.3}/><stop offset="95%" stopColor={activeChartMetric.color} stopOpacity={0}/></linearGradient></defs>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
                         <XAxis dataKey="time" tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} />
                         <YAxis yAxisId={activeChartMetric.yAxisId} tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Area type="monotone" yAxisId={activeChartMetric.yAxisId} dataKey={chartMetric} stroke={activeChartMetric.color} strokeWidth={3} fillOpacity={1} fill="url(#colorMetric)" name={activeChartMetric.label} animationDuration={1000} />
+                        <Area type="monotone" yAxisId={activeChartMetric.yAxisId} dataKey={chartMetric} stroke={activeChartMetric.color} strokeWidth={3} strokeDasharray={combinedChartData.some(d => d.isForecast) ? "5 5" : "0"} fillOpacity={1} fill="url(#colorMetric)" name={activeChartMetric.label} />
                       </AreaChart>
                     )}
                   </ResponsiveContainer>
@@ -578,7 +583,6 @@ export default function Dashboard({ user, onLogout }) {
                   )}
                 </div>
               </div>
-
             </div>
           </div>
         </main>

@@ -379,7 +379,7 @@ app.get('/api/camera-logs', async (req, res) => {
 });
 
 // ==========================================
-// 🌊 IOT ROUTES (UPDATED WITH SOFT SENSORS)
+// ⚙️ IOT ROUTES (UPDATED WITH SOFT SENSORS)
 // ==========================================
 app.get('/api/ponds', async (req, res) => {
   try {
@@ -480,37 +480,37 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // ==========================================
-// 🔮 AI PREDICTION ENDPOINT
+// 🔮 AI PREDICTION ENDPOINT (UPDATED FOR NEW MASTER MODEL)
 // ==========================================
 app.get('/api/predict/:pondId', async (req, res) => {
   const { pondId } = req.params;
   try {
-      // 1. Get the last 60 readings from Database
+      // 1. Get the last 10 readings from Database (Matches window_size=10 in LSTM)
       const history = await prisma.sensorReading.findMany({
           where: { pondId: parseInt(pondId) },
           orderBy: { timestamp: 'desc' },
-          take: 60
+          take: 10
       });
 
       // 2. If we don't have enough data, send a warning
-      if (history.length < 60) {
+      if (history.length < 10) {
           return res.status(200).json({ 
               warning: "Not enough data", 
-              message: `Need 60 data points, found ${history.length}` 
+              message: `Need 10 data points, found ${history.length}` 
           });
       }
 
       // 3. Format data for Python (Reverse so oldest is first)
       const formattedData = history.reverse().map(r => ({
-          do: r.dissolvedOxygen,
-          ph: r.ph,
           temp: r.temperature,
-          turbidity: r.turbidity,
+          ph: r.ph,
+          do: r.dissolvedOxygen,
           ammonia: r.ammonia,
+          turbidity: r.turbidity,
           salinity: r.salinity
       }));
 
-      // 4. Send to Python Server
+      // 4. Send to Python Server (Flask on Port 5000)
       const aiResponse = await axios.post('http://127.0.0.1:5000/predict', {
           readings: formattedData
       });

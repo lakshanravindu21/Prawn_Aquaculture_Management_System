@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import { useNavigate } from 'react-router-dom';
 import { 
   Camera, AlertTriangle, CheckCircle2, Maximize2, BrainCircuit, History, 
   Video, Mic, MicOff, Settings, Sliders, Eye, EyeOff, Aperture, Save, Activity,
-  Play, Pause, Volume2, VolumeX, ChevronDown, RefreshCw, WifiOff, Stethoscope
+  Play, Pause, Volume2, VolumeX, ChevronDown, RefreshCw, WifiOff, Stethoscope, X
 } from 'lucide-react';
 import Header from './Header';
 import Footer from './Footer';
@@ -20,9 +20,12 @@ export default function CameraFeed({ user, onLogout }) {
   const [selectedPond, setSelectedPond] = useState(1);
   
   // Real Data State
-  const [liveImage, setLiveImage] = useState(null); // The big main image
-  const [logs, setLogs] = useState([]);             // The sidebar history list
+  const [liveImage, setLiveImage] = useState(null); 
+  const [logs, setLogs] = useState([]);             
   const [loading, setLoading] = useState(true);
+  
+  // ✅ Modal State for Image Pop-up
+  const [selectedLogImage, setSelectedLogImage] = useState(null);
 
   // Camera Settings State
   const [sensitivity, setSensitivity] = useState(85);
@@ -30,7 +33,7 @@ export default function CameraFeed({ user, onLogout }) {
   const [isMuted, setIsMuted] = useState(false);
   const [fps, setFps] = useState(0); 
 
-  const navigate = useNavigate(); // Hook for navigation
+  const navigate = useNavigate();
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // ✅ FETCH REAL DATA FROM BACKEND
@@ -45,11 +48,14 @@ export default function CameraFeed({ user, onLogout }) {
         setLiveImage(data[0].url);
         setLogs(data);
         setLoading(false);
+        // Explicitly set FPS when connected
         setFps(Math.floor(Math.random() * (15 - 10) + 10)); 
       }
     } catch (error) {
       console.error("Connection Error:", error);
       setFps(0);
+      // Reset values on connection loss
+      setLiveImage(null);
     }
   };
 
@@ -60,9 +66,6 @@ export default function CameraFeed({ user, onLogout }) {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // Bridge Function: Send current frame to Health Page (Concept)
-  // Ideally, you'd save the image to a global context or pass state, 
-  // but for now we just navigate user to the Health page to do a manual check.
   const handleQuickDiagnosis = () => {
     navigate('/health');
   };
@@ -128,13 +131,11 @@ export default function CameraFeed({ user, onLogout }) {
           {/* --- 2. MAIN CONTENT GRID --- */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            {/* LEFT COLUMN: VIDEO PLAYER (2/3 Width) */}
+            {/* LEFT COLUMN: VIDEO PLAYER */}
             <div className="lg:col-span-2 space-y-6">
               
-              {/* Video Container */}
               <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 bg-black group transition-colors duration-300 min-h-[500px]">
                 
-                {/* Header Overlay */}
                 <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-start z-10">
                   <div className="flex gap-2">
                     <span className="px-2 py-1 bg-black/50 backdrop-blur-md rounded text-[10px] font-mono text-emerald-400 border border-emerald-500/30">
@@ -157,7 +158,6 @@ export default function CameraFeed({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* ✅ THE LIVE VIDEO FEED */}
                 <div className={`w-full h-[500px] bg-slate-900 relative flex items-center justify-center ${isNightVision ? 'grayscale contrast-125 brightness-110' : ''}`}>
                   {isPlaying && liveImage ? (
                     <>
@@ -167,7 +167,6 @@ export default function CameraFeed({ user, onLogout }) {
                         className="w-full h-full object-contain" 
                       />
                       
-                      {/* AI Bounding Box Overlay (Simulated) */}
                       {isAiEnabled && (
                         <div className="absolute top-1/4 left-1/3 w-40 h-40 border-2 border-emerald-400 rounded-lg shadow-[0_0_20px_rgba(52,211,153,0.4)] flex items-end justify-center transition-all duration-500 hover:scale-105 cursor-crosshair">
                           <div className="bg-emerald-500/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 mb-[-12px] rounded-md shadow-sm flex items-center gap-1">
@@ -186,10 +185,8 @@ export default function CameraFeed({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* Bottom Controls Overlay */}
                 <div className="absolute bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-slate-700 p-4 flex justify-between items-center z-20">
                   
-                  {/* Playback Controls */}
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => setIsPlaying(!isPlaying)}
@@ -206,7 +203,6 @@ export default function CameraFeed({ user, onLogout }) {
                     </button>
                   </div>
 
-                  {/* AI & Tools */}
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => setIsAiEnabled(!isAiEnabled)}
@@ -228,7 +224,6 @@ export default function CameraFeed({ user, onLogout }) {
                     </button>
                   </div>
 
-                  {/* Recording */}
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => setIsRecording(!isRecording)}
@@ -243,45 +238,12 @@ export default function CameraFeed({ user, onLogout }) {
                   </div>
                 </div>
               </div>
-
-              {/* Quick Stats Bar */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-3 transition-colors">
-                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
-                    <Video className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Frame Type</p>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">BMP (Raw)</p>
-                  </div>
-                </div>
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-3 transition-colors">
-                  <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600 dark:text-purple-400">
-                    <Activity className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Latency</p>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">~1.5 Sec</p>
-                  </div>
-                </div>
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-3 transition-colors">
-                  <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600 dark:text-orange-400">
-                    <Save className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Stored Logs</p>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">{logs.length} Frames</p>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* RIGHT COLUMN: SIDEBAR (1/3 Width) */}
+            {/* RIGHT COLUMN: SIDEBAR */}
             <div className="space-y-6">
-              
-              {/* ✅ 1. REAL DETECTION LOG CARD (UPDATED COLOR) */}
-              <div className="bg-orange-50 dark:bg-slate-800 rounded-2xl border border-orange-100 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[400px] transition-colors duration-300">
-                <div className="bg-white dark:bg-slate-900/50 px-5 py-4 border-b border-orange-100 dark:border-slate-700 flex justify-between items-center">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-[500px] transition-colors duration-300">
+                <div className="bg-slate-50 dark:bg-slate-900/50 px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
                   <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                     <History className="w-4 h-4 text-orange-500" />
                     Live Capture Log
@@ -296,72 +258,162 @@ export default function CameraFeed({ user, onLogout }) {
                     <div className="text-center text-slate-400 text-xs py-10">No captures yet</div>
                   ) : (
                     logs.map((log) => (
-                      <div key={log.id} className="relative pl-4 border-l-2 border-orange-300 dark:border-slate-600 py-2 group animate-in fade-in slide-in-from-right-4 duration-300 hover:bg-orange-100/50 dark:hover:bg-slate-700/30 rounded-r-lg transition-colors cursor-pointer">
-                        <div className="flex justify-between items-center pr-2">
-                          <div>
-                            <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                              {log.description || "RGB565 Capture"}
+                      <div 
+                        key={log.id} 
+                        onClick={() => setSelectedLogImage(log.url)}
+                        className="relative pl-3 border-l-4 border-orange-500 dark:border-orange-600 py-3 group animate-in fade-in slide-in-from-right-4 duration-300 bg-slate-50 dark:bg-slate-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/10 rounded-r-xl transition-all cursor-pointer border border-transparent hover:border-orange-200 dark:hover:border-orange-800/30"
+                      >
+                        <div className="flex justify-between items-center pr-2 gap-3">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[11px] font-black uppercase text-slate-700 dark:text-slate-200 truncate block tracking-tight">
+                              {log.description || "ESP32 Capture"}
                             </span>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                              {new Date(log.timestamp).toLocaleTimeString()}
+                              {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                             </p>
                           </div>
-                          {/* Colored Box Placeholder (Matches Screenshot) */}
-                          <div className="w-6 h-6 rounded bg-gradient-to-br from-orange-400 to-amber-600 shadow-sm"></div>
+                          {/* ✅ REAL THUMBNAIL INSTEAD OF ORANGE BOX */}
+                          <div className="w-12 h-10 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm bg-black flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
+                            <img src={log.url} alt="Thumb" className="w-full h-full object-cover" />
+                          </div>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* 2. CAMERA SETTINGS CARD */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5 transition-colors duration-300">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                  <Settings className="w-4 h-4 text-slate-400" />
-                  Camera Settings
-                </h3>
-                
-                <div className="space-y-5">
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">WSSV Sensitivity</label>
-                      <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{sensitivity}%</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0" max="100" 
-                      value={sensitivity} 
-                      onChange={(e) => setSensitivity(e.target.value)}
-                      className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                    />
-                  </div>
+          {/* ✅ 4 BOXES (SAME HEIGHT) + MORE COLORFUL + BALANCED */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+            {/* Box 1 */}
+            <div className="h-[110px] bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-indigo-950/30 p-4 rounded-2xl border border-blue-200/70 dark:border-indigo-900/40 shadow-sm flex items-center gap-3 transition-all hover:shadow-lg hover:-translate-y-0.5">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20">
+                <Video className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-black uppercase tracking-wide">Frame Type</p>
+                <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">BMP (Raw)</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Capture format</p>
+              </div>
+            </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className={`p-1.5 rounded-md transition-colors ${isNightVision ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
-                        {isNightVision ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                      </div>
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Night Vision (Filter)</span>
-                    </div>
-                    <button 
-                      onClick={() => setIsNightVision(!isNightVision)}
-                      className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${isNightVision ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'}`}
-                    >
-                      <div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all shadow-sm ${isNightVision ? 'left-6' : 'left-1'}`}></div>
-                    </button>
+            {/* Box 2 */}
+            <div className="h-[110px] bg-gradient-to-br from-fuchsia-50 to-purple-50 dark:from-slate-800 dark:to-purple-950/25 p-4 rounded-2xl border border-purple-200/70 dark:border-purple-900/40 shadow-sm flex items-center gap-3 transition-all hover:shadow-lg hover:-translate-y-0.5">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white shadow-lg shadow-purple-500/20">
+                <Activity className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-black uppercase tracking-wide">Latency</p>
+                <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">~1.5 Sec</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Stream delay</p>
+              </div>
+            </div>
+
+            {/* Box 3 */}
+            <div className="h-[110px] bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-800 dark:to-orange-950/25 p-4 rounded-2xl border border-orange-200/70 dark:border-orange-900/40 shadow-sm flex items-center gap-3 transition-all hover:shadow-lg hover:-translate-y-0.5">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-orange-500/20">
+                <Save className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-black uppercase tracking-wide">Stored Logs</p>
+                <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">{logs.length} Frames</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Captured history</p>
+              </div>
+            </div>
+
+            {/* Box 4 (Camera Settings) */}
+            <div className="h-[110px] bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-800 dark:to-emerald-950/25 p-4 rounded-2xl border border-emerald-200/70 dark:border-emerald-900/40 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20">
+                    <Settings className="w-5 h-5" />
                   </div>
-                  
-                  <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold uppercase shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2">
-                    <Sliders className="w-4 h-4" />
-                    Calibrate Sensor
-                  </button>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-black uppercase tracking-wide">Camera Settings</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">Quick controls</p>
+                  </div>
                 </div>
+
+                <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
+                  {sensitivity}%
+                </span>
               </div>
 
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <div className="h-2 w-full rounded-full bg-white/70 dark:bg-slate-700 overflow-hidden border border-emerald-200/60 dark:border-slate-600">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
+                      style={{ width: `${sensitivity}%` }}
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsNightVision(!isNightVision)}
+                  className={`w-11 h-6 rounded-full relative cursor-pointer transition-colors border shadow-sm
+                    ${isNightVision ? 'bg-emerald-500 border-emerald-400' : 'bg-white/70 dark:bg-slate-700 border-slate-200 dark:border-slate-600'}`}
+                  title="Night Vision (Filter)"
+                >
+                  <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all shadow-sm ${isNightVision ? 'left-6' : 'left-1'}`}></div>
+                </button>
+
+                <button className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-black uppercase shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5">
+                  <Sliders className="w-4 h-4" />
+                  Night Vission
+                </button>
+              </div>
             </div>
           </div>
         </main>
+
+        {/* ✅ ATTRACTIVE IMAGE POP-UP MODAL */}
+        {selectedLogImage && (
+          <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md animate-in fade-in duration-300"
+            onClick={() => setSelectedLogImage(null)}
+          >
+            <div 
+              className="relative max-w-4xl w-full bg-white dark:bg-slate-800 rounded-3xl overflow-hidden shadow-2xl border border-white/10"
+              onClick={(e) => e.stopPropagation()} // Prevent close when clicking image
+            >
+              <div className="absolute top-4 right-4 z-10">
+                <button 
+                  onClick={() => setSelectedLogImage(null)}
+                  className="p-2 bg-black/50 hover:bg-rose-600 text-white rounded-full backdrop-blur-md transition-all shadow-lg"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="p-2 bg-slate-900 flex items-center justify-center">
+                 <img 
+                    src={selectedLogImage} 
+                    alt="Expanded Capture" 
+                    className="max-h-[80vh] w-auto object-contain rounded-2xl"
+                  />
+              </div>
+              <div className="p-6 bg-white dark:bg-slate-800 flex justify-between items-center">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white">Log Inspection</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Captured via ESP32-CAM (RGB565 to BMP conversion)</p>
+                </div>
+                <button 
+                    onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = selectedLogImage;
+                        link.download = `Pond_Log_${Date.now()}.bmp`;
+                        link.click();
+                    }}
+                    className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
+                >
+                    <Save className="w-4 h-4" /> Download Frame
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         <Footer />
       </div>

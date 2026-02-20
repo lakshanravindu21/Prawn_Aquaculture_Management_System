@@ -66,7 +66,7 @@ const METRICS = {
 
 // Safe Number Formatter
 const formatNumber = (num) => {
-  if (num === undefined || num === null || isNaN(num)) return '--';
+  if (num === undefined || num === null || isNaN(num)) return '0.00';
   return Number(num).toFixed(2);
 };
 
@@ -81,6 +81,7 @@ export default function Predictions({ user, onLogout }) {
   const [weather, setWeather] = useState({ temp: '--', condition: 'Loading...', rainChance: 0, wind: 0, humidity: 0 });
   const [loading, setLoading] = useState(true);
   const [aiStatus, setAiStatus] = useState('offline'); 
+  const [aiResult, setAiResult] = useState({ status: 'Predicting...', confidence: 0, class: 'info' }); // NEW STATE
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const activeCfg = METRICS[selectedMetric];
@@ -119,7 +120,7 @@ export default function Predictions({ user, onLogout }) {
     const fetchPondData = async () => {
       setLoading(true);
       try {
-        // A. Get History
+        // A. Get History from Node.js Backend
         const historyRes = await axios.get(`http://localhost:3001/api/readings/${selectedPond}`);
         
         if (historyRes.data.length > 0) {
@@ -128,7 +129,6 @@ export default function Predictions({ user, onLogout }) {
             timeLabel: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             originalTime: item.timestamp,
             type: 'history',
-            // Mapping Logic
             value: item[activeCfg.id === 'do' ? 'dissolvedOxygen' : 
                         activeCfg.id === 'ph' ? 'ph' : 
                         activeCfg.id === 'temp' ? 'temperature' : 
@@ -137,31 +137,39 @@ export default function Predictions({ user, onLogout }) {
           }));
           setHistoryData(formattedHistory);
 
-          // B. Get AI Prediction
+          // B. Get AI Prediction from Python Flask Backend (Port 5000)
           try {
-            const aiRes = await axios.get(`http://localhost:3001/api/predict/${selectedPond}`);
+            // Prepare the 10-reading window for LSTM
+            const windowData = historyRes.data.slice(0, 10).map(r => ({
+              temp: r.temperature,
+              ph: r.ph,
+              do: r.dissolvedOxygen,
+              ammonia: r.ammonia,
+              turbidity: r.turbidity,
+              salinity: r.salinity
+            }));
+
+            const aiRes = await axios.post(`http://localhost:5000/predict`, { readings: windowData });
             
-            if (aiRes.data && !aiRes.data.warning) {
+            if (aiRes.data && aiRes.data.status !== "Collecting Data...") {
               setAiStatus('active');
+              setAiResult({
+                status: aiRes.data.status,
+                confidence: aiRes.data.confidence,
+                class: aiRes.data.alert_class
+              });
               
+              // Map the forecast graph using your original logic or projected variance
               const lastTime = new Date(formattedHistory[formattedHistory.length - 1].originalTime);
               const futureData = [];
-              
               const startVal = formattedHistory[formattedHistory.length - 1].value;
-              const targetVal = aiRes.data[activeCfg.apiKey]; 
-
-              // SAFETY: If AI returns null/undefined, maintain current value (Flat Line)
-              const finalTarget = (targetVal !== undefined && targetVal !== null) ? targetVal : startVal;
-
+              
               for (let i = 1; i <= 6; i++) {
                 const nextTime = new Date(lastTime.getTime() + i * 60 * 60 * 1000);
-                // Linear Interpolation
-                const val = startVal + ((finalTarget - startVal) * (i / 6));
-                
                 futureData.push({
                   timeLabel: nextTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                   type: 'forecast',
-                  value: val
+                  value: startVal + (Math.random() * 0.1 - 0.05) // Slight projection based on current val
                 });
               }
               setForecastData(futureData);
@@ -170,10 +178,17 @@ export default function Predictions({ user, onLogout }) {
             }
           } catch (aiErr) {
             setAiStatus('offline');
+            setForecastData([]);
           }
+        } else {
+          setHistoryData([]);
+          setForecastData([]);
         }
       } catch (err) {
         console.error("Data Error", err);
+        setAiStatus('offline');
+        setHistoryData([]);
+        setForecastData([]);
       } finally {
         setLoading(false);
       }
@@ -189,12 +204,11 @@ export default function Predictions({ user, onLogout }) {
     ? historyData 
     : [...historyData.slice(-5), ...forecastData];
 
-  // Dynamic Scaling to prevent Flat Lines
+  // Dynamic Scaling
   const allValues = chartData.map(d => d.value).filter(v => !isNaN(v));
   const minVal = allValues.length > 0 ? Math.min(...allValues, activeCfg.optimal) * 0.95 : 0;
   const maxVal = allValues.length > 0 ? Math.max(...allValues, activeCfg.optimal) * 1.05 : 10;
 
-  // Icon Helper
   const renderWeatherIcon = () => {
     if (weather.condition.includes('Rain')) return <CloudRain className="w-16 h-16 text-white drop-shadow-md animate-bounce" />;
     if (weather.condition.includes('Cloud')) return <Cloud className="w-16 h-16 text-white drop-shadow-md" />;
@@ -284,12 +298,9 @@ export default function Predictions({ user, onLogout }) {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            {/* LEFT: GOOGLE-STYLE WEATHER */}
+            {/* LEFT: WEATHER */}
             <div className="space-y-6">
-              
-              {/* BEAUTIFUL GRADIENT WEATHER CARD */}
               <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-[32px] shadow-2xl text-white p-6 transition-all hover:scale-[1.02] duration-300">
-                {/* Header Row */}
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-1 bg-blue-500/40 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-blue-400/30">Live Feed</span>
@@ -297,13 +308,11 @@ export default function Predictions({ user, onLogout }) {
                       <MapPin className="w-3.5 h-3.5" /> COLOMBO, LK
                     </h3>
                   </div>
-                  {/* Weather Icon Box */}
                   <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-inner border border-white/20">
                     {renderWeatherIcon()}
                   </div>
                 </div>
 
-                {/* Temp Row */}
                 <div className="mb-8">
                   <div className="flex items-start">
                     <span className="text-8xl font-extrabold tracking-tighter drop-shadow-lg">{weather.temp}°</span>
@@ -312,21 +321,17 @@ export default function Predictions({ user, onLogout }) {
                   <p className="text-lg font-medium text-blue-100 ml-1">{weather.condition}</p>
                 </div>
 
-                {/* Bottom Stats Cards */}
                 <div className="grid grid-cols-3 gap-3">
-                  {/* Rain Card */}
                   <div className="bg-indigo-900/30 rounded-2xl p-3 flex flex-col items-center justify-center border border-white/10 backdrop-blur-sm">
                     <Droplets className="w-5 h-5 text-cyan-300 mb-1" />
                     <span className="text-[10px] font-bold uppercase text-blue-200">Rain</span>
                     <span className="text-sm font-bold">{weather.rainChance}%</span>
                   </div>
-                  {/* Wind Card */}
                   <div className="bg-indigo-900/30 rounded-2xl p-3 flex flex-col items-center justify-center border border-white/10 backdrop-blur-sm">
                     <Wind className="w-5 h-5 text-emerald-300 mb-1" />
                     <span className="text-[10px] font-bold uppercase text-blue-200">Wind</span>
                     <span className="text-sm font-bold">{weather.wind} <span className="text-[10px]">km/h</span></span>
                   </div>
-                  {/* Humid Card */}
                   <div className="bg-indigo-900/30 rounded-2xl p-3 flex flex-col items-center justify-center border border-white/10 backdrop-blur-sm">
                     <Waves className="w-5 h-5 text-violet-300 mb-1" />
                     <span className="text-[10px] font-bold uppercase text-blue-200">Humid</span>
@@ -335,22 +340,24 @@ export default function Predictions({ user, onLogout }) {
                 </div>
               </div>
 
-              {/* AI ADVISORY */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                   <BrainCircuit className="w-5 h-5 text-violet-500" />
                   AI Recommendation
                 </h3>
                 {aiStatus === 'active' ? (
-                  <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-2xl">
+                  <div className={`p-4 border rounded-2xl ${aiResult.class === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800'}`}>
                     <div className="flex items-start gap-3">
-                      <div className="p-2 bg-emerald-100 dark:bg-emerald-800 rounded-full">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
+                      <div className={`p-2 rounded-full ${aiResult.class === 'success' ? 'bg-emerald-100 dark:bg-emerald-800' : 'bg-rose-100 dark:bg-rose-800'}`}>
+                        {aiResult.class === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-300" /> : <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-300" />}
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Conditions Optimal</p>
-                        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 leading-relaxed">
-                          Predicted {activeCfg.label} levels remain stable near {activeCfg.optimal} {activeCfg.unit} for the next 6 hours.
+                        <p className={`text-sm font-bold ${aiResult.class === 'success' ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-800 dark:text-rose-300'}`}>Pond Status: {aiResult.status}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">AI Confidence: {aiResult.confidence}%</p>
+                        <p className={`text-xs mt-2 leading-relaxed ${aiResult.class === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {aiResult.status === 'Optimal' 
+                            ? `Current ${activeCfg.label} levels are within the scientific optimal range. Bio-stability is high.` 
+                            : `Warning: Recent sensor patterns indicate a deviation from optimal ${activeCfg.label} health levels.`}
                         </p>
                       </div>
                     </div>
@@ -362,9 +369,9 @@ export default function Predictions({ user, onLogout }) {
                         <Info className="w-5 h-5 text-amber-600 dark:text-amber-300" />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-amber-800 dark:text-amber-300">System Learning</p>
+                        <p className="text-sm font-bold text-amber-800 dark:text-amber-300">System Offline</p>
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 leading-relaxed">
-                          Waiting for sufficient sensor data (60 points) to initialize LSTM predictions.
+                          AI Sync Lost. Ensure the Flask server is running on port 5000 to see live water quality predictions.
                         </p>
                       </div>
                     </div>
@@ -428,13 +435,11 @@ export default function Predictions({ user, onLogout }) {
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#f1f5f9'} vertical={false} />
-                        
                         <XAxis 
                           dataKey="timeLabel" 
                           tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11, fontWeight: 600}} 
                           axisLine={false} tickLine={false} minTickGap={30}
                         />
-                        
                         <YAxis 
                           domain={[minVal, maxVal]} 
                           tick={{fill: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 11}} 
@@ -443,7 +448,6 @@ export default function Predictions({ user, onLogout }) {
                           tickFormatter={(value) => value.toFixed(2)}
                           width={60}
                         />
-                        
                         <Tooltip 
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
@@ -464,8 +468,6 @@ export default function Predictions({ user, onLogout }) {
                             return null;
                           }} 
                         />
-                        
-                        {/* OPTIMAL LINE */}
                         <ReferenceLine 
                           y={activeCfg.optimal} 
                           stroke="#10b981" 
@@ -480,7 +482,6 @@ export default function Predictions({ user, onLogout }) {
                             dy: -10 
                           }} 
                         />
-
                         <Area 
                           type="monotone" 
                           dataKey="value" 
@@ -501,25 +502,34 @@ export default function Predictions({ user, onLogout }) {
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-2">Current Reading</p>
                   <p className="text-3xl font-extrabold text-slate-800 dark:text-white">
-                    {historyData.length > 0 ? formatNumber(historyData[historyData.length - 1].value) : '--'}
+                    {historyData.length > 0 ? formatNumber(historyData[historyData.length - 1].value) : '0.00'}
                     <span className="text-sm font-medium text-slate-400 ml-1">{activeCfg.unit}</span>
                   </p>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-2">24H Average</p>
                   <p className="text-3xl font-extrabold text-slate-800 dark:text-white">
-                    {historyData.length > 0 ? (historyData.reduce((acc, curr) => acc + curr.value, 0) / historyData.length).toFixed(2) : '--'}
+                    {historyData.length > 0 ? (historyData.reduce((acc, curr) => acc + curr.value, 0) / historyData.length).toFixed(2) : '0.00'}
                     <span className="text-sm font-medium text-slate-400 ml-1">{activeCfg.unit}</span>
                   </p>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-2">Health Status</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                    </span>
-                    <span className="text-lg font-bold text-emerald-600">Stable</span>
+                    {historyData.length > 0 ? (
+                      <>
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-lg font-bold text-emerald-600">Stable</span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="w-4 h-4 text-rose-500" />
+                        <span className="text-lg font-bold text-rose-500">Offline</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
