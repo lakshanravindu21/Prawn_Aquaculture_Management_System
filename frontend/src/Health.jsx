@@ -106,7 +106,7 @@ export default function Health({ user, onLogout, isDarkMode, toggleTheme }) {
   useEffect(() => {
     const checkSystem = async () => {
       try {
-        await axios.get('http://localhost:3001/');
+        await axios.get('http://localhost:5000/'); // Pointing to your Flask port 5000
         setSystemStatus('online');
       } catch (e) {
         setSystemStatus('offline');
@@ -120,10 +120,11 @@ export default function Health({ user, onLogout, isDarkMode, toggleTheme }) {
 
   useEffect(() => { return () => stopCamera(); }, []);
 
-  // --- BEHAVIOR MAPPING ---
+  // --- UPDATED BEHAVIOR MAPPING ---
   const getBehaviorAnalysis = (condition) => {
-    if (condition === 'White Spot Syndrome') return ["Lethargy", "Swimming near surface", "Reddish discoloration"];
-    if (condition === 'Black Gill Disease') return ["Respiratory distress", "Loss of appetite", "Gill fouling"];
+    if (condition === 'White Spot Syndrome') return ["Lethargy", "Swimming near surface", "White spots on carapace"];
+    if (condition === 'Black Gill Disease') return ["Respiratory distress", "Loss of appetite", "Blackened gill filaments"];
+    if (condition === 'BG & WSSV Coinfection') return ["Extreme lethargy", "Severe gill fouling", "Mass mortality signs"];
     return ["Normal activity", "Responsive to stimuli", "Clear shell"];
   };
 
@@ -194,7 +195,8 @@ export default function Health({ user, onLogout, isDarkMode, toggleTheme }) {
     formData.append('prawnImage', selectedImage);
 
     try {
-      const res = await axios.post('http://localhost:3001/api/analyze-health', formData, {
+      // Aligned with the Flask /api/analyze-health route on port 5000
+      const res = await axios.post('http://localhost:5000/api/analyze-health', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
@@ -232,9 +234,8 @@ export default function Health({ user, onLogout, isDarkMode, toggleTheme }) {
         condition: item.condition,
         status: item.status,
         confidence: item.confidence,
-        advice: item.status === 'healthy' 
-          ? "Specimen appears healthy. Continue regular monitoring." 
-          : "Consult a specialist for detailed treatment."
+        advice: item.advice, // Using advice from the historical result
+        behaviors: item.behaviors
     });
     setInputMode('preview');
     showToast("Loaded scan from history.", "success");
@@ -448,7 +449,17 @@ export default function Health({ user, onLogout, isDarkMode, toggleTheme }) {
                       </div>
                       <h2 className="text-4xl font-black mb-1">{result.condition}</h2>
                       <p className="text-white/80 text-sm mb-4">Confidence: {result.confidence}%</p>
-                      <div className="p-4 bg-black/20 backdrop-blur-md rounded-xl border border-white/10"><p className="text-xs font-medium leading-relaxed">{result.advice}</p></div>
+                      <div className="p-4 bg-black/20 backdrop-blur-md rounded-xl border border-white/10">
+                        <p className="text-xs font-medium leading-relaxed mb-2">{result.advice}</p>
+                        {result.behaviors && result.behaviors.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-white/10">
+                            <p className="text-[10px] font-bold uppercase mb-1">Observed Symptoms:</p>
+                            <ul className="list-disc list-inside text-[10px] opacity-80">
+                              {result.behaviors.map((b, idx) => <li key={idx}>{b}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

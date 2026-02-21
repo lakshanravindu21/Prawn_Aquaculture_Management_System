@@ -10,7 +10,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
-const axios = require('axios'); // <--- ADDED AXIOS HERE
+const axios = require('axios');
+const FormData = require('form-data'); // <--- ENSURE THIS IS INSTALLED: npm install form-data
 
 const app = express();
 const prisma = new PrismaClient();
@@ -427,7 +428,7 @@ app.post('/api/readings', async (req, res) => {
         dissolvedOxygen: parseFloat(parseFloat(dissolvedOxygen).toFixed(2)), 
         temperature: tempVal,
         turbidity: turbVal,
-        ammonia: parseFloat(parseFloat(ammonia).toFixed(3)),                   
+        ammonia: parseFloat(parseFloat(ammonia).toFixed(3)),                    
         salinity: parseFloat(salValue),                
         pond: { connect: { id: parseInt(pondId) } }
       }
@@ -524,7 +525,7 @@ app.get('/api/predict/:pondId', async (req, res) => {
 });
 
 // ==========================================
-// 🦠 DISEASE DETECTION ROUTE
+// 🦠 DISEASE DETECTION ROUTE (UPDATED BRIDGE)
 // ==========================================
 app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) => {
   try {
@@ -532,13 +533,23 @@ app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) =>
       return res.status(400).json({ error: "No image uploaded" });
     }
 
-    console.log("🧬 Analyzing Image:", req.file.filename);
-    const imagePath = path.resolve(req.file.path);
-
-    const aiResponse = await axios.post('http://127.0.0.1:5000/analyze-image', {
-      imagePath: imagePath
+    console.log("🧬 Preparing Multi-class Neural Analysis for:", req.file.filename);
+    
+    // 1. Create a FormData instance to carry the actual image buffer to Flask
+    const form = new FormData();
+    form.append('prawnImage', fs.createReadStream(req.file.path), {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
     });
 
+    // 2. Send the actual file stream to Flask (Port 5000)
+    const aiResponse = await axios.post('http://127.0.0.1:5000/api/analyze-health', form, {
+      headers: {
+        ...form.getHeaders(),
+      }
+    });
+
+    // 3. Merge AI findings with local metadata and return to React
     res.json({
       ...aiResponse.data,
       imageUrl: `http://localhost:${PORT}/uploads/${req.file.filename}`
@@ -546,7 +557,7 @@ app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) =>
 
   } catch (error) {
     console.error("❌ Analysis Failed:", error.message);
-    res.status(500).json({ error: "Analysis service unavailable" });
+    res.status(500).json({ error: "AI Service Unreachable. Ensure app.py is running on port 5000." });
   }
 });
 

@@ -8,19 +8,19 @@ from tensorflow.keras.preprocessing import image
 import joblib
 import os
 from datetime import datetime
+from PIL import Image
 
 app = Flask(__name__)
 CORS(app)  # Enables communication with your Frontend/Node.js
 
 # ==========================================
-# 1. LOAD AI BRAIN (LSTM & SCALER)
+# 1. LOAD AI BRAIN (LSTM, SCALER & CNN)
 # ==========================================
-# Use the filenames we generated in Colab
 SENSOR_MODEL_PATH = 'model/prawn_master_model.h5'
 SCALER_PATH = 'model/scaler.pkl'
-VISION_MODEL_PATH = 'model/prawn_vision.h5'
+VISION_MODEL_PATH = 'model/prawn_disease_model.h5' 
 
-# Load Sensor Model
+# Load Sensor Model (LSTM)
 try:
     sensor_model = load_model(SENSOR_MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
@@ -28,11 +28,29 @@ try:
 except Exception as e:
     print(f"⚠️ Sensor Model Error: {e}. Check if files exist in /model folder.")
 
-# Load Vision Model
+# Load Vision Model (CNN)
 vision_model = None
 if os.path.exists(VISION_MODEL_PATH):
-    vision_model = load_model(VISION_MODEL_PATH)
-    print("✅ Prawn Vision Brain (CNN) Ready!")
+    try:
+        vision_model = load_model(VISION_MODEL_PATH)
+        print("✅ Prawn Vision Brain (CNN) Ready!")
+    except Exception as e:
+        print(f"⚠️ Vision Model Error: {e}")
+
+# ==========================================
+# 🏥 HEALTH CHECK ROUTE (FIXES "OFFLINE" ERROR)
+# ==========================================
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({
+        "status": "online",
+        "message": "AquaSmart AI Engine is running",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }), 200
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 # ==========================================
 # 🔮 ROUTE 1: REAL-TIME WATER QUALITY ANALYSIS
@@ -41,27 +59,21 @@ if os.path.exists(VISION_MODEL_PATH):
 def predict():
     try:
         data = request.json
-        # The new LSTM needs a window of 10 readings
         readings = data.get('readings', [])
 
         if len(readings) < 10:
             return jsonify({'status': 'Collecting Data...', 'needed': 10 - len(readings)}), 202
 
-        # 1. Feature Engineering (Match the exact order of our Master Dataset)
         feature_order = ['temp', 'ph', 'do', 'ammonia', 'turbidity', 'salinity']
-        df = pd.DataFrame(readings[-10:]) # Take the last 10 readings
+        df = pd.DataFrame(readings[-10:]) 
         df = df[feature_order]
 
-        # 2. Scale and Reshape for LSTM
         input_scaled = scaler.transform(df)
-        input_reshaped = np.array([input_scaled]) # Shape: (1, 10, 6)
+        input_reshaped = np.array([input_scaled]) 
 
-        # 3. Predict Quality
         prediction = sensor_model.predict(input_reshaped)
         confidence = float(prediction[0][0])
         
-        # 4. Logic for Web App Status
-        # Since it's a sigmoid output: > 0.5 is Good, < 0.5 is Danger
         status = "Optimal" if confidence > 0.5 else "Danger"
         css_class = "success" if status == "Optimal" else "danger"
 
@@ -76,40 +88,70 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 # ==========================================
-# 🦠 ROUTE 2: DISEASE DETECTION
+# 🦠 ROUTE 2: DISEASE DETECTION (Neural Analysis)
 # ==========================================
-@app.route('/analyze-image', methods=['POST'])
-def analyze_image():
+@app.route('/api/analyze-health', methods=['POST'])
+def analyze_health():
     try:
-        data = request.json
-        img_path = data.get('imagePath')
-        
-        if not vision_model:
-            # Simulation mode if you haven't trained the CNN yet
-            return jsonify({
-                'condition': 'Healthy (Simulated)',
-                'confidence': 95.5,
-                'advice': 'Regular checkup completed. Maintain DO levels.'
-            })
+        # Handle file upload from Node.js Bridge
+        if 'prawnImage' in request.files:
+            file = request.files['prawnImage']
+            img = Image.open(file.stream).convert('RGB')
+        # Handle direct path (if applicable)
+        elif request.is_json and 'imagePath' in request.json:
+            img_path = request.json.get('imagePath')
+            if not os.path.exists(img_path):
+                return jsonify({'error': 'Image file not found on server'}), 400
+            img = Image.open(img_path).convert('RGB')
+        else:
+            return jsonify({'error': 'No image data provided'}), 400
 
-        # Preprocess for CNN
-        img = image.load_img(img_path, target_size=(224, 224))
-        img_array = image.img_to_array(img) / 255.0
+        if not vision_model:
+             return jsonify({'error': 'Vision Model not initialized on backend'}), 503
+
+        # 1. Preprocess for MobileNetV2 (224x224)
+        img = img.resize((224, 224))
+        img_array = np.array(img) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
 
+        # 2. Execute Neural Prediction
         pred = vision_model.predict(img_array)
-        # Add your classes here
-        classes = ['Black Gill', 'Healthy', 'White Spot']
         result_idx = np.argmax(pred)
+        confidence_val = round(float(np.max(pred) * 100), 2)
         
+        # 3. FIX: Alphabetical Class Mapping (Standard Keras order for your dataset)
+        # Folders: BG, Healthy, WSSV, WSSV_BG -> Alphabetical indices: 0, 1, 2, 3
+        classes = ['Black Gill Disease', 'Healthy', 'White Spot Syndrome', 'BG & WSSV Coinfection']
+        
+        # 4. CONFIDENCE GUARD: If confidence is too low (< 60%), don't give a potentially wrong answer
+        if confidence_val < 60.0:
+            return jsonify({
+                'condition': 'Analysis Inconclusive',
+                'confidence': confidence_val,
+                'status': 'unhealthy',
+                'advice': "The AI is unsure. Please provide a clearer image with better lighting for a more accurate diagnosis."
+            })
+
+        condition = classes[result_idx]
+        
+        # 5. Proactive Advisories
+        advisories = {
+            'Healthy': "Specimen appears healthy. Translucency and gill color are within optimal research parameters.",
+            'White Spot Syndrome': "CRITICAL: Calcium deposits detected on carapace. Immediate quarantine and suspension of water exchange required.",
+            'Black Gill Disease': "WARNING: Melanin accumulation in gills found. Increase aeration and inspect bottom soil quality.",
+            'BG & WSSV Coinfection': "EMERGENCY: Multiple pathological markers detected. High risk of mass mortality; notify biosecurity immediately."
+        }
+
         return jsonify({
-            'condition': classes[result_idx],
-            'confidence': float(np.max(pred) * 100),
-            'status': 'healthy' if classes[result_idx] == 'Healthy' else 'infected'
+            'condition': condition,
+            'confidence': confidence_val,
+            'status': 'healthy' if condition == 'Healthy' else 'unhealthy',
+            'advice': advisories.get(condition, "Pathology unclear. Please rescan with better lighting.")
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ AI Prediction Error: {str(e)}")
+        return jsonify({'error': 'Neural analysis failed internally'}), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
