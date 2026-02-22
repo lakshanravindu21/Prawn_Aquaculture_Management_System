@@ -14,7 +14,22 @@ const axios = require('axios');
 const FormData = require('form-data'); // <--- ENSURE THIS IS INSTALLED: npm install form-data
 
 const app = express();
-const prisma = new PrismaClient();
+
+// ✅ UPDATED: Prisma init with logs + connect once
+const prisma = new PrismaClient({
+  log: ['error', 'warn'],
+});
+
+// ✅ Connect once on boot (avoids lazy-connection race under heavy load)
+(async () => {
+  try {
+    await prisma.$connect();
+    console.log("✅ Prisma DB Connected");
+  } catch (e) {
+    console.error("❌ Prisma DB Connect Failed:", e.message);
+  }
+})();
+
 const PORT = 3001;
 
 // Use key from .env
@@ -65,12 +80,59 @@ transporter.verify(function (error, success) {
 });
 
 // ==========================================
+// ✅ FILE-BASED SESSION STORE (HEALTH SCANS)
+// ==========================================
+const HEALTH_SESSION_STORE_PATH = path.join(__dirname, 'health_session_store.json');
+
+function ensureHealthSessionStoreFile() {
+  try {
+    if (!fs.existsSync(HEALTH_SESSION_STORE_PATH)) {
+      fs.writeFileSync(HEALTH_SESSION_STORE_PATH, JSON.stringify({ sessions: {} }, null, 2), 'utf-8');
+    }
+  } catch (e) {
+    console.error("❌ Failed to init health session store:", e.message);
+  }
+}
+ensureHealthSessionStoreFile();
+
+function readHealthSessionStore() {
+  try {
+    ensureHealthSessionStoreFile();
+    const raw = fs.readFileSync(HEALTH_SESSION_STORE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw || '{}');
+    if (!parsed.sessions) parsed.sessions = {};
+    return parsed;
+  } catch (e) {
+    console.error("❌ Failed to read health session store:", e.message);
+    return { sessions: {} };
+  }
+}
+
+function writeHealthSessionStore(storeObj) {
+  try {
+    fs.writeFileSync(HEALTH_SESSION_STORE_PATH, JSON.stringify(storeObj, null, 2), 'utf-8');
+    return true;
+  } catch (e) {
+    console.error("❌ Failed to write health session store:", e.message);
+    return false;
+  }
+}
+
+function getSessionOwnerKey(req) {
+  if (req.user && req.user.id) return `user:${req.user.id}`;
+
+  const deviceId = (req.headers['x-device-id'] || '').toString().trim();
+  if (deviceId) return `device:${deviceId}`;
+
+  return `anon:shared`;
+}
+
+// ==========================================
 // 🛡️ MIDDLEWARE: VERIFY JWT TOKEN
 // ==========================================
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  
-  // Extract token: "Bearer <token>"
+
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
@@ -78,15 +140,27 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ error: "Access denied. No token provided." });
   }
 
-  // Remove extra quotes if they exist
   const cleanToken = token.replace(/"/g, '');
 
   jwt.verify(cleanToken, SECRET_KEY, (err, user) => {
     if (err) {
-      console.error("❌ Token Verify Failed:", err.message); 
+      console.error("❌ Token Verify Failed:", err.message);
       return res.status(403).json({ error: "Invalid token." });
     }
-    req.user = user; 
+    req.user = user;
+    next();
+  });
+}
+
+// ✅ OPTIONAL AUTH (won’t block if no token)
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return next();
+
+  const cleanToken = token.replace(/"/g, '');
+  jwt.verify(cleanToken, SECRET_KEY, (err, user) => {
+    if (!err && user) req.user = user;
     next();
   });
 }
@@ -243,7 +317,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 app.put('/api/auth/update-profile', authenticateToken, upload.single('avatar'), async (req, res) => {
   try {
     const { name } = req.body;
-    const userId = parseInt(req.user.id); 
+    const userId = parseInt(req.user.id);
 
     console.log(`📝 Updating profile for User ID: ${userId}`);
 
@@ -260,7 +334,7 @@ app.put('/api/auth/update-profile', authenticateToken, upload.single('avatar'), 
     });
 
     console.log("✅ Profile updated!");
-    
+
     res.json({
       message: "Profile updated successfully",
       user: {
@@ -282,7 +356,7 @@ app.put('/api/auth/update-profile', authenticateToken, upload.single('avatar'), 
 app.put('/api/auth/change-password', authenticateToken, async (req, res) => {
   try {
     console.log("🔐 Change Password Request Body:", req.body);
-    
+
     const { currentPassword, newPassword } = req.body;
     const userId = parseInt(req.user.id);
 
@@ -317,6 +391,111 @@ app.put('/api/auth/change-password', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
+// ✅ HEALTH SESSION LOG ROUTES (PERSIST AFTER REFRESH)
+// ==========================================
+
+app.get('/api/health-session', optionalAuth, async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const pondId = parseInt(req.query.pondId || "1", 10) || 1;
+    const limitRaw = parseInt(req.query.limit || "10", 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 10;
+
+    const ownerKey = getSessionOwnerKey(req);
+    const store = readHealthSessionStore();
+
+    const ownerBucket = store.sessions[ownerKey] || {};
+    const pondBucket = ownerBucket[String(pondId)] || [];
+
+    const list = [...pondBucket].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, limit);
+
+    return res.json({
+      ownerKey,
+      pondId,
+      count: list.length,
+      logs: list
+    });
+  } catch (error) {
+    console.error("❌ Health session fetch error:", error.message);
+    return res.status(500).json({ error: "Failed to fetch health session logs" });
+  }
+});
+
+app.post('/api/health-session', optionalAuth, async (req, res) => {
+  try {
+    const {
+      pondId,
+      researcher,
+      condition,
+      status,
+      confidence,
+      advice,
+      behaviors,
+      img
+    } = req.body || {};
+
+    const finalPondId = parseInt(pondId || "1", 10) || 1;
+
+    if (!condition || !status) {
+      return res.status(400).json({ error: "Missing condition/status" });
+    }
+
+    const ownerKey = getSessionOwnerKey(req);
+    const store = readHealthSessionStore();
+
+    if (!store.sessions[ownerKey]) store.sessions[ownerKey] = {};
+    if (!store.sessions[ownerKey][String(finalPondId)]) store.sessions[ownerKey][String(finalPondId)] = [];
+
+    const entry = {
+      id: Date.now(),
+      createdAt: Date.now(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: new Date().toLocaleDateString(),
+      pondId: finalPondId,
+      researcher: researcher || "Researcher",
+      condition,
+      status,
+      confidence,
+      advice,
+      behaviors: Array.isArray(behaviors) ? behaviors : [],
+      img: img || null
+    };
+
+    store.sessions[ownerKey][String(finalPondId)] = [entry, ...store.sessions[ownerKey][String(finalPondId)]].slice(0, 50);
+
+    const ok = writeHealthSessionStore(store);
+    if (!ok) return res.status(500).json({ error: "Failed to persist session log" });
+
+    return res.status(201).json({ message: "Session log saved", entry });
+  } catch (error) {
+    console.error("❌ Health session save error:", error.message);
+    return res.status(500).json({ error: "Failed to save health session log" });
+  }
+});
+
+app.delete('/api/health-session', optionalAuth, async (req, res) => {
+  try {
+    const pondId = parseInt(req.query.pondId || "1", 10) || 1;
+    const ownerKey = getSessionOwnerKey(req);
+
+    const store = readHealthSessionStore();
+    if (!store.sessions[ownerKey]) store.sessions[ownerKey] = {};
+    store.sessions[ownerKey][String(pondId)] = [];
+
+    const ok = writeHealthSessionStore(store);
+    if (!ok) return res.status(500).json({ error: "Failed to clear session log" });
+
+    return res.json({ message: "Session logs cleared", pondId });
+  } catch (error) {
+    console.error("❌ Health session clear error:", error.message);
+    return res.status(500).json({ error: "Failed to clear health session logs" });
+  }
+});
+
+// ==========================================
 // 📷 CAMERA ROUTES
 // ==========================================
 
@@ -332,21 +511,20 @@ app.post('/api/camera-frame', async (req, res) => {
 
     if (imgLen === 0) return res.status(400).send("Empty Image Data");
 
-    // Check if pond exists
     const pond = await prisma.pond.findUnique({ where: { id: pondId } });
     if (!pond) return res.status(404).send(`Pond ${pondId} not found`);
 
     let bmpBuffer;
     try {
       if (imgType === 'GRAYSCALE') {
-          bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
+        bmpBuffer = convertGrayscaleToBMP(req.body, width, height);
       } else {
-          bmpBuffer = convertRGB565toBMP(req.body, width, height);
+        bmpBuffer = convertRGB565toBMP(req.body, width, height);
       }
     } catch (conversionError) {
       return res.status(500).send("Image Conversion Failed");
     }
-    
+
     const base64Image = `data:image/bmp;base64,${bmpBuffer.toString('base64')}`;
 
     const newLog = await prisma.cameraLog.create({
@@ -367,15 +545,104 @@ app.post('/api/camera-frame', async (req, res) => {
   }
 });
 
+// =====================================================
+// ✅ CAMERA LOGS (FIXED): CACHE + SINGLE-FLIGHT + BACKOFF + GUARANTEED CLEANUP
+// =====================================================
+const CAMERA_LOG_CACHE_TTL_MS = 600; // small cache to prevent DB spam
+const cameraLogsCache = new Map();   // key -> { ts, data }
+const cameraLogsInFlight = new Map(); // key -> Promise
+let dbBackoffUntil = 0;
+
+function isDbDownError(err) {
+  const msg = (err?.message || "").toLowerCase();
+  return (
+    msg.includes("timed out fetching a new connection") ||
+    msg.includes("connection pool") ||
+    msg.includes("can't reach database server") ||
+    msg.includes("connect") ||
+    msg.includes("timeout") ||
+    msg.includes("ecconn") ||
+    msg.includes("econnreset") ||
+    msg.includes("econnrefused")
+  );
+}
+
 app.get('/api/camera-logs', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   try {
-    const logs = await prisma.cameraLog.findMany({
-      orderBy: { timestamp: 'desc' },
-      take: 10
-    });
-    res.json(logs);
+    // ✅ Fail fast during backoff window
+    if (Date.now() < dbBackoffUntil) {
+      return res.status(200).json([]);
+    }
+
+    const pondId = req.query.pondId ? parseInt(req.query.pondId, 10) : null;
+    const takeRaw = req.query.take ? parseInt(req.query.take, 10) : 10;
+    const take = Number.isFinite(takeRaw) ? Math.min(Math.max(takeRaw, 1), 50) : 10;
+
+    const cursorId = req.query.cursorId ? parseInt(req.query.cursorId, 10) : null;
+    const withImage = (req.query.withImage ?? "1") !== "0";
+
+    const cacheKey = `pond:${pondId || "all"}|take:${take}|cursor:${cursorId || 0}|img:${withImage ? 1 : 0}`;
+
+    // ✅ Serve from cache
+    const cached = cameraLogsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CAMERA_LOG_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
+    // ✅ Single-flight
+    if (cameraLogsInFlight.has(cacheKey)) {
+      const data = await cameraLogsInFlight.get(cacheKey);
+      return res.json(data);
+    }
+
+    const where = {};
+    if (pondId) where.pondId = pondId;
+    if (cursorId) where.id = { gt: cursorId };
+
+    const queryPromise = (async () => {
+      const logs = await prisma.cameraLog.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        take,
+        ...(withImage
+          ? {}
+          : {
+              select: {
+                id: true,
+                type: true,
+                description: true,
+                pondId: true,
+                timestamp: true,
+              }
+            })
+      });
+
+      cameraLogsCache.set(cacheKey, { ts: Date.now(), data: logs });
+      return logs;
+    })();
+
+    cameraLogsInFlight.set(cacheKey, queryPromise);
+
+    try {
+      const logs = await queryPromise;
+      return res.json(logs);
+    } finally {
+      // ✅ ALWAYS cleanup inflight even if query fails
+      cameraLogsInFlight.delete(cacheKey);
+    }
+
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch logs" });
+    console.error("❌ Fetch Logs Error:", error.message);
+
+    if (isDbDownError(error)) {
+      dbBackoffUntil = Date.now() + 5000;
+    }
+
+    return res.status(200).json([]);
   }
 });
 
@@ -389,56 +656,50 @@ app.get('/api/ponds', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to fetch ponds" }); }
 });
 
-// ✅ UPDATED READINGS ROUTE WITH BACKEND CALCULATIONS & PH FIX
 app.post('/api/readings', async (req, res) => {
   let { ph, temp, turbidity, salinity, pondId } = req.body;
   let dissolvedOxygen = req.body.do;
   let ammonia = req.body.ammonia;
 
-  // ✅ 1. Capture dynamic pH from sensor data (Default to 7.0 if invalid)
-  const phVal = parseFloat(ph) || 7.0; 
+  const phVal = parseFloat(ph) || 7.0;
   const tempVal = parseFloat(temp) || 28;
   const turbVal = parseFloat(turbidity) || 0;
-  
-  // 2. Salinity Unit Fix (PPM -> PPT)
+
   let salValue = parseFloat(salinity) || 0;
   if (salValue > 50) {
-      salValue = salValue / 1000;
+    salValue = salValue / 1000;
   }
 
-  // 3. BACKEND LOGIC: Calculate Dissolved Oxygen (DO)
   if (!dissolvedOxygen || parseFloat(dissolvedOxygen) === 0) {
-      let calcDO = 14.6 - (0.33 * tempVal) - (0.05 * salValue);
-      dissolvedOxygen = Math.max(0.8, calcDO);
+    let calcDO = 14.6 - (0.33 * tempVal) - (0.05 * salValue);
+    dissolvedOxygen = Math.max(0.8, calcDO);
   }
 
-  // 4. BACKEND LOGIC: Calculate Ammonia (Biological Baseline)
-  // Uses the current pH and Temperature to derive a realistic gas level
   if (!ammonia || parseFloat(ammonia) === 0) {
-      let biologicalFactor = (tempVal * 0.0008) + (phVal * 0.001);
-      let turbidityFactor = turbVal * 0.002;
-      let calcAmmonia = biologicalFactor + turbidityFactor;
-      ammonia = Math.max(0.015, calcAmmonia);
+    let biologicalFactor = (tempVal * 0.0008) + (phVal * 0.001);
+    let turbidityFactor = turbVal * 0.002;
+    let calcAmmonia = biologicalFactor + turbidityFactor;
+    ammonia = Math.max(0.015, calcAmmonia);
   }
 
   try {
     const reading = await prisma.sensorReading.create({
       data: {
-        ph: phVal, // ✅ Now stores the sensor value correctly
-        dissolvedOxygen: parseFloat(parseFloat(dissolvedOxygen).toFixed(2)), 
+        ph: phVal,
+        dissolvedOxygen: parseFloat(parseFloat(dissolvedOxygen).toFixed(2)),
         temperature: tempVal,
         turbidity: turbVal,
-        ammonia: parseFloat(parseFloat(ammonia).toFixed(3)),                    
-        salinity: parseFloat(salValue),                
+        ammonia: parseFloat(parseFloat(ammonia).toFixed(3)),
+        salinity: parseFloat(salValue),
         pond: { connect: { id: parseInt(pondId) } }
       }
     });
-    
+
     console.log(`📡 Logged: pH=${phVal} | Temp=${tempVal} | DO=${dissolvedOxygen} | NH3=${ammonia}`);
     res.status(201).json(reading);
-  } catch (error) { 
+  } catch (error) {
     console.error("❌ Save Error:", error.message);
-    res.status(500).json({ error: "Failed to save reading" }); 
+    res.status(500).json({ error: "Failed to save reading" });
   }
 });
 
@@ -463,15 +724,14 @@ app.post('/api/actuators/:id/toggle', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Failed to toggle actuator" }); }
 });
 
-// ✅ SEED ROUTE
 app.post('/api/seed', async (req, res) => {
   try {
     const pondCount = await prisma.pond.count();
     if (pondCount > 0) return res.json({ message: "Already seeded." });
-    
+
     const pond = await prisma.pond.create({
       data: {
-        id: 1, 
+        id: 1,
         name: "Research Pond 01", location: "Faculty",
         actuators: { create: [{ name: "Aerator", isOn: false }] }
       }
@@ -481,46 +741,42 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // ==========================================
-// 🔮 AI PREDICTION ENDPOINT (UPDATED FOR NEW MASTER MODEL)
+// 🔮 AI PREDICTION ENDPOINT
 // ==========================================
 app.get('/api/predict/:pondId', async (req, res) => {
   const { pondId } = req.params;
   try {
-      // 1. Get the last 10 readings from Database (Matches window_size=10 in LSTM)
-      const history = await prisma.sensorReading.findMany({
-          where: { pondId: parseInt(pondId) },
-          orderBy: { timestamp: 'desc' },
-          take: 10
+    const history = await prisma.sensorReading.findMany({
+      where: { pondId: parseInt(pondId) },
+      orderBy: { timestamp: 'desc' },
+      take: 10
+    });
+
+    if (history.length < 10) {
+      return res.status(200).json({
+        warning: "Not enough data",
+        message: `Need 10 data points, found ${history.length}`
       });
+    }
 
-      // 2. If we don't have enough data, send a warning
-      if (history.length < 10) {
-          return res.status(200).json({ 
-              warning: "Not enough data", 
-              message: `Need 10 data points, found ${history.length}` 
-          });
-      }
+    const formattedData = history.reverse().map(r => ({
+      temp: r.temperature,
+      ph: r.ph,
+      do: r.dissolvedOxygen,
+      ammonia: r.ammonia,
+      turbidity: r.turbidity,
+      salinity: r.salinity
+    }));
 
-      // 3. Format data for Python (Reverse so oldest is first)
-      const formattedData = history.reverse().map(r => ({
-          temp: r.temperature,
-          ph: r.ph,
-          do: r.dissolvedOxygen,
-          ammonia: r.ammonia,
-          turbidity: r.turbidity,
-          salinity: r.salinity
-      }));
+    const aiResponse = await axios.post('http://127.0.0.1:5000/predict', {
+      readings: formattedData
+    });
 
-      // 4. Send to Python Server (Flask on Port 5000)
-      const aiResponse = await axios.post('http://127.0.0.1:5000/predict', {
-          readings: formattedData
-      });
-
-      res.json(aiResponse.data);
+    res.json(aiResponse.data);
 
   } catch (error) {
-      console.error("❌ AI Error:", error.message);
-      res.status(500).json({ error: "AI Service Offline" });
+    console.error("❌ AI Error:", error.message);
+    res.status(500).json({ error: "AI Service Offline" });
   }
 });
 
@@ -534,22 +790,19 @@ app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) =>
     }
 
     console.log("🧬 Preparing Multi-class Neural Analysis for:", req.file.filename);
-    
-    // 1. Create a FormData instance to carry the actual image buffer to Flask
+
     const form = new FormData();
     form.append('prawnImage', fs.createReadStream(req.file.path), {
       filename: req.file.originalname,
       contentType: req.file.mimetype,
     });
 
-    // 2. Send the actual file stream to Flask (Port 5000)
     const aiResponse = await axios.post('http://127.0.0.1:5000/api/analyze-health', form, {
       headers: {
         ...form.getHeaders(),
       }
     });
 
-    // 3. Merge AI findings with local metadata and return to React
     res.json({
       ...aiResponse.data,
       imageUrl: `http://localhost:${PORT}/uploads/${req.file.filename}`
@@ -561,13 +814,11 @@ app.post('/api/analyze-health', upload.single('prawnImage'), async (req, res) =>
   }
 });
 
-
 // ==========================================
 // 🛠 BMP CONVERTERS
 // ==========================================
-
 function convertGrayscaleToBMP(buffer, width, height) {
-  const pad = (4 - (width * 3) % 4) % 4; 
+  const pad = (4 - (width * 3) % 4) % 4;
   const fileSize = 54 + ((width * 3 + pad) * height);
   const bmp = Buffer.alloc(fileSize);
 
@@ -586,9 +837,9 @@ function convertGrayscaleToBMP(buffer, width, height) {
   for (let y = height - 1; y >= 0; y--) {
     for (let x = 0; x < width; x++) {
       const val = buffer[y * width + x];
-      bmp[pos++] = val; bmp[pos++] = val; bmp[pos++] = val; 
+      bmp[pos++] = val; bmp[pos++] = val; bmp[pos++] = val;
     }
-    pos += pad; 
+    pos += pad;
   }
   return bmp;
 }
@@ -614,8 +865,8 @@ function convertRGB565toBMP(buffer, width, height) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 2;
       const byte1 = buffer[i];
-      const byte2 = buffer[i+1];
-      const val = (byte1 << 8) | byte2; 
+      const byte2 = buffer[i + 1];
+      const val = (byte1 << 8) | byte2;
 
       const r = ((val >> 11) & 0x1F) << 3;
       const g = ((val >> 5) & 0x3F) << 2;
@@ -633,6 +884,40 @@ function convertRGB565toBMP(buffer, width, height) {
 // ==========================================
 app.get('/', (req, res) => {
   res.send("<h1>Prawn Monitoring Backend is LIVE! 🦐🚀</h1>");
+});
+
+// ✅ UPDATED: Graceful shutdown for nodemon + normal exits
+async function shutdown(signal) {
+  try {
+    console.log(`🛑 Shutdown signal received: ${signal}`);
+    await prisma.$disconnect();
+    console.log("✅ Prisma disconnected");
+  } catch (e) {
+    console.log("⚠️ Prisma disconnect error:", e.message);
+  }
+}
+
+// CTRL+C
+process.on('SIGINT', async () => {
+  await shutdown('SIGINT');
+  process.exit(0);
+});
+
+// Normal stop (Docker/PM2/etc)
+process.on('SIGTERM', async () => {
+  await shutdown('SIGTERM');
+  process.exit(0);
+});
+
+// ✅ nodemon restart uses SIGUSR2
+process.once('SIGUSR2', async () => {
+  await shutdown('SIGUSR2');
+  process.kill(process.pid, 'SIGUSR2');
+});
+
+// Prisma internal hook
+process.on('beforeExit', async () => {
+  await shutdown('beforeExit');
 });
 
 // Start Server

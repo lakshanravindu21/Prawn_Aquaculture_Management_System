@@ -1,0 +1,206 @@
+{
+  "sessions": {
+    "user:2": {
+      "1": [
+        {
+          "id": 1771758616542,
+          "createdAt": 1771758616542,
+          "time": "04:40 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "White Spot Syndrome",
+          "status": "unhealthy",
+          "confidence": 89.78,
+          "advice": "CRITICAL: Calcium deposits detected on carapace. Immediate quarantine and suspension of water exchange required.",
+          "behaviors": [
+            "Lethargy",
+            "Swimming near surface",
+            "White spots on carapace"
+          ],
+          "img": "blob:http://localhost:5173/499f2fd1-7f75-4d2e-a3fe-16bfa796cb5a"
+        },
+        {
+          "id": 1771758553694,
+          "createdAt": 1771758553694,
+          "time": "04:39 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "BG & WSSV Coinfection",
+          "status": "unhealthy",
+          "confidence": 65.72,
+          "advice": "EMERGENCY: Multiple pathological markers detected. High risk of mass mortality; notify biosecurity immediately.",
+          "behaviors": [
+            "Extreme lethargy",
+            "Severe gill fouling",
+            "Mass mortality signs"
+          ],
+          "img": "blob:http://localhost:5173/9ec699f7-beb4-42cb-94f4-0aefddc55f3f"
+        },
+        {
+          "id": 1771758475507,
+          "createdAt": 1771758475507,
+          "time": "04:37 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Healthy",
+          "status": "healthy",
+          "confidence": 90.65,
+          "advice": "Specimen appears healthy. Translucency and gill color are within optimal research parameters.",
+          "behaviors": [
+            "Normal activity",
+            "Responsive to stimuli",
+            "Clear shell"
+          ],
+          "img": "blob:http://localhost:5173/622a4361-cfbb-4ec5-a145-b042e5924b78"
+        },
+        {
+          "id": 1771758335383,
+          "createdAt": 1771758335383,
+          "time": "04:35 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Analysis Inconclusive",
+          "status": "unhealthy",
+          "confidence": 59.56,
+          "advice": "The AI is unsure. Please provide a clearer image with better lighting for a more accurate diagnosis.",
+          "behaviors": [
+            "Normal activity",
+            "Responsive to stimuli",
+            "Clear shell"
+          ],
+          "img": "blob:http://localhost:5173/e96db969-9f2a-4a76-9964-5878b2ff3c22"
+        },
+        {
+          "id": 1771758305225,
+          "createdAt": 1771758305225,
+          "time": "04:35 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "BG & WSSV Coinfection",
+          "status": "unhealthy",
+          "confidence": 88.69,
+          "advice": "EMERGENCY: Multiple pathological markers detected. High risk of mass mortality; notify biosecurity immediately.",
+          "behaviors": [
+            "Extreme lethargy",
+            "Severe gill fouling",
+            "Mass mortality signs"
+          ],
+          "img": "blob:http://localhost:5173/41d3b0d4-11c3-447e-9d37-8c6a551e1a58"
+        },
+        {
+          "id": 1771758275410,
+          "createdAt": 1771758275410,
+          "time": "04:34 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Black Gill Disease",
+          "status": "unhealthy",
+          "confidence": 73.71,
+          "advice": "WARNING: Melanin accumulation in gills found. Increase aeration and inspect bottom soil quality.",
+          "behaviors": [
+            "Respiratory distress",
+            "Loss of appetite",
+            "Blackened gill filaments"
+          ],
+          "img": "blob:http://localhost:5173/c885da96-20de-41ef-b736-17fd0c4c276d"
+        },
+        {
+          "id": 1771758258600,
+          "createdAt": 1771758258600,
+          "time": "04:34 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Black Gill Disease",
+          "status": "unhealthy",
+          "confidence": 95.67,
+          "advice": "WARNING: Melanin accumulation in gills found. Increase aeration and inspect bottom soil quality.",
+          "behaviors": [
+            "Respiratory distress",
+            "Loss of appetite",
+            "Blackened gill filaments"
+          ],
+          "img": "blob:http://localhost:5173/f7317679-4e0d-4186-a2df-54ba766f1903"
+        },
+        {
+          "id": 1771758227489,
+          "createdAt": 1771758227489,
+          "time": "04:33 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Analysis Inconclusive",
+          "status": "unhealthy",
+          "confidence": 50.74,
+          "advice": "The AI is unsure. Please provide a clearer image with better lighting for a more accurate diagnosis.",
+          "behaviors": [
+            "Normal activity",
+            "Responsive to stimuli",
+            "Clear shell"
+          ],
+          "img": "blob:http://localhost:5173/e93c5938-6975-4f8e-b3cf-bf8f3aa9da54"
+        },
+        {
+          "id": 1771758155893,
+          "createdAt": 1771758155893,
+          "time": "04:32 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Black Gill Disease",
+          "status": "unhealthy",
+          "confidence": 73.71,
+          "advice": "WARNING: Melanin accumulation in gills found. Increase aeration and inspect bottom soil quality.",
+          "behaviors": [
+            "Respiratory distress",
+            "Loss of appetite",
+            "Blackened gill filaments"
+          ],
+          "img": "blob:http://localhost:5173/f1f76cc6-1ea2-4898-98a6-52fbdc014095"
+        },
+        {
+          "id": 1771758136167,
+          "createdAt": 1771758136167,
+          "time": "04:32 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Analysis Inconclusive",
+          "status": "unhealthy",
+          "confidence": 59.05,
+          "advice": "The AI is unsure. Please provide a clearer image with better lighting for a more accurate diagnosis.",
+          "behaviors": [
+            "Normal activity",
+            "Responsive to stimuli",
+            "Clear shell"
+          ],
+          "img": "blob:http://localhost:5173/b65c34bc-23e3-4366-aaae-cee3751e1e89"
+        },
+        {
+          "id": 1771758114098,
+          "createdAt": 1771758114098,
+          "time": "04:31 PM",
+          "date": "2/22/2026",
+          "pondId": 1,
+          "researcher": "Ravindu Lakshan",
+          "condition": "Analysis Inconclusive",
+          "status": "unhealthy",
+          "confidence": 59.83,
+          "advice": "The AI is unsure. Please provide a clearer image with better lighting for a more accurate diagnosis.",
+          "behaviors": [
+            "Normal activity",
+            "Responsive to stimuli",
+            "Clear shell"
+          ],
+          "img": "blob:http://localhost:5173/95067ea4-299d-4166-b782-a3e46c718d87"
+        }
+      ]
+    }
+  }
+}
